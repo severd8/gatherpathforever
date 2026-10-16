@@ -21,30 +21,32 @@ local function AddRefresher(fn) table.insert(refreshers, fn) end
 local refs = {}
 GP.ui = refs
 
--- A colored square that opens the game's color picker
-local function Swatch(parent)
+-- A colored square that opens the game's color picker. get(self) is the color
+-- now ({ r, g, b }, nil = nothing to pick), set(self, r, g, b) keeps a new one.
+local function Swatch(parent, get, set, title, tip)
     local b = CreateFrame("Button", nil, parent)
     b:SetSize(22, 22)
     b.fill = T.Fill(b, { 1, 1, 1, 1 }, "ARTWORK")
     T.Border(b, C.edge)
     function b:Paint(c) self.fill:SetColorTexture(c[1], c[2], c[3], 1) end
+    T.Disabler(b, { b })
     b:SetScript("OnClick", function(self)
-        local route = self.route
+        local now = not self.disabled and get(self)
         local picker = ColorPickerFrame
-        if not (route and picker and picker.SetupColorPickerAndShow) then return end
-        local before = { unpack(route.color) }
+        if not (now and picker and picker.SetupColorPickerAndShow) then return end
+        local before = { unpack(now) }
         picker:SetupColorPickerAndShow({
             r = before[1], g = before[2], b = before[3], hasOpacity = false,
             swatchFunc = function()
                 local r, g, bl = picker:GetColorRGB()
-                GP:SetRouteColor(route, r, g, bl)
+                set(self, r, g, bl)
             end,
             cancelFunc = function()
-                GP:SetRouteColor(route, before[1], before[2], before[3])
+                set(self, before[1], before[2], before[3])
             end,
         })
     end)
-    T.Tooltip(b, "Line color", "Click to pick the color of this route's line.")
+    T.Tooltip(b, title, tip)
     return b
 end
 
@@ -140,7 +142,10 @@ local function BuildRoutes(p)
         T.Fill(r, C.card)
         T.Border(r, C.line)
         -- top: color, name, Edit, Rebuild, Delete; below: what it is, Show
-        r.swatch = Swatch(r)
+        r.swatch = Swatch(r,
+            function(b) return b.route and b.route.color end,
+            function(b, cr, cg, cb) GP:SetRouteColor(b.route, cr, cg, cb) end,
+            "Line color", "Click to pick the color of this route's line.")
         r.swatch:SetPoint("TOPLEFT", 10, -8)
         r.name = T.EditBox(r, 230)
         r.name:SetPoint("LEFT", r.swatch, "RIGHT", 8, 0)
@@ -472,17 +477,43 @@ local function Slider(parent, text, x, y, key, suffix, tip)
     return s
 end
 
+-- "Each route's own color" and, under it, the one color for every line on
+-- that map ("world" or "minimap"), greyed out while routes keep their own
+local function LineColor(parent, x, y, where, place)
+    local key = where .. "RouteColor"
+    local sw = Setting(parent, "Each route's own color", x, y, key,
+        "Draw each route " .. place .. " in the color it has on the Routes tab. "
+        .. "Turn this off to draw every route there in the color below.")
+    local swatch = Swatch(parent,
+        function() return GP.db[where .. "Color"] end,
+        function(_, r, g, b) GP:SetLineColor(where, r, g, b) end,
+        "Line color", "Click to pick the color of every route's line " .. place
+        .. ". Turn off Each route's own color to use it.")
+    swatch:SetPoint("TOPLEFT", x, y - 28)
+    local label = Text(parent, "Line color", "GameFontHighlight")
+    label:SetPoint("LEFT", swatch, "RIGHT", 8, 0)
+    AddRefresher(function()
+        swatch:Paint(GP.db[where .. "Color"])
+        swatch:SetDisabled(GP.db[key])
+        label:SetAlpha(GP.db[key] and 0.4 or 1)
+    end)
+    return sw, swatch
+end
+
 local function BuildDisplay(p)
-    local card = Card(p, "Lines", 0, 0, PAGE_W, 164)
+    local card = Card(p, "Lines", 0, 0, PAGE_W, 222)
     refs.worldSwitch = Setting(card, "On the world map", 12, -30, "worldMap",
         "Draw the routes on the world map, on their zone's map (and thinner on the continent's).")
     refs.minimapSwitch = Setting(card, "On the minimap", COL2, -30, "minimap",
         "Draw the routes on the minimap, round you.")
     Slider(card, "World map line width", 12, -64, "worldWidth")
     Slider(card, "Minimap line width", COL2, -64, "minimapWidth")
-    Slider(card, "Opacity", 12, -108, "alpha", "%")
+    refs.worldAlpha = Slider(card, "World map opacity", 12, -108, "worldAlpha", "%")
+    refs.minimapAlpha = Slider(card, "Minimap opacity", COL2, -108, "minimapAlpha", "%")
+    refs.worldRouteColor, refs.worldColor = LineColor(card, 12, -152, "world", "on the world map")
+    refs.minimapRouteColor, refs.minimapColor = LineColor(card, COL2, -152, "minimap", "on the minimap")
 
-    local card2 = Card(p, "More", 0, -176, PAGE_W, 86)
+    local card2 = Card(p, "More", 0, -234, PAGE_W, 86)
     Setting(card2, "Add new nodes to routes", 12, -30, "autoAdd",
         "When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, "
         .. "where it adds the least walking.")

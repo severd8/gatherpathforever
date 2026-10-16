@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.0
+
+- New on the **Display** tab: the world map and the minimap each get their own **opacity** slider (they used to share one), so you can keep a bold line on the world map and a faint one on the minimap, or the other way round. Your old opacity is kept for both.
+- New **line color** for each map. **Each route's own color** is on to start, so nothing changes until you want it to. Turn it off and click the **Line color** square to draw every route on that map in one color you pick, for example white on the minimap so lines stand out against the terrain.
+
 ## 1.4.0
 
 - **New route** on the **Routes** tab now opens New route in the zone you were looking at, so you only have to pick the nodes. Everything else still starts blank. The **New route** tab on the left still starts with no zone.

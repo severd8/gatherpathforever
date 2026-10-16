@@ -551,6 +551,40 @@ check(GP.db.minimap == false)
 Click(ui.minimapSwitch)
 check(GP.db.minimap == true)
 
+STEP("line color and opacity, each map on its own")
+WorldMapFrame:SetMapID(E)
+PLAYER.x, PLAYER.y = 0.5, 0.5
+local herbs = GP.db.routes[1]
+local function firstLine(pool) return Shown(pool)[1] end
+GP:Changed()
+check(GP.db.worldRouteColor and GP.db.minimapRouteColor, "routes keep their own color to start")
+check(ui.worldColor.disabled and ui.minimapColor.disabled, "so the one-color squares are greyed out")
+check(firstLine(pin.pool).__color[1] == herbs.color[1], "world map: the route's color")
+Click(ui.worldRouteColor)
+check(GP.db.worldRouteColor == false and not ui.worldColor.disabled, "own color off: the square can be clicked")
+GP:SetLineColor("world", 0.1, 0.2, 0.3)
+local c = firstLine(pin.pool).__color
+check(c[1] == 0.1 and c[2] == 0.2 and c[3] == 0.3, "world map lines take the picked color")
+check(ui.worldColor.fill.__color[1] == 0.1, "and the square shows it")
+local m = firstLine(GP.mm.pool)
+check(m and m.__color[1] == herbs.color[1], "the minimap keeps the route's color")
+GP.db.worldAlpha = 40
+GP:Changed()
+check(near(firstLine(pin.pool).__color[4], 0.4), "world map opacity")
+check(near(firstLine(GP.mm.pool).__color[4], 0.85), "the minimap's opacity is its own")
+Click(ui.minimapRouteColor)
+GP:SetLineColor("minimap", 0.9, 0.8, 0.7)
+GP.db.minimapAlpha = 60
+GP:Changed()
+c = firstLine(GP.mm.pool).__color
+check(c[1] == 0.9 and c[3] == 0.7 and near(c[4], 0.6), "minimap lines take their own color and opacity")
+check(firstLine(pin.pool).__color[1] == 0.1, "world map unchanged")
+Click(ui.worldRouteColor)
+check(firstLine(pin.pool).__color[1] == herbs.color[1], "own color back on")
+Click(ui.minimapRouteColor)
+GP.db.worldAlpha, GP.db.minimapAlpha = 85, 85
+GP:Changed()
+
 ---------------------------------------------------------------------------
 STEP("saved routes come back, and junk is dropped")
 local saved = GatherPathForeverDB
@@ -571,6 +605,16 @@ GP.db.routes[1].merge, GP.db.merge = 20, 20   -- from before 1.3.0
 GP:LoadSettings()
 check(GP.db.routes[1].merge == nil and GP.db.merge == nil, "the old merge setting is gone")
 check(#GP.db.routes[1].points == points, "and the route's loop is left as it was")
+saved.alpha, saved.worldAlpha, saved.minimapAlpha = 50, nil, nil   -- one Opacity before 1.5.0
+saved.worldColor, saved.minimapColor = "junk", { 2, -1, 0.5 }
+GP:LoadSettings()
+check(GP.db.worldAlpha == 50 and GP.db.minimapAlpha == 50 and GP.db.alpha == nil, "the old opacity carries over to both")
+check(GP.db.worldColor[1] == 1 and GP.db.worldColor[2] == 0.82, "a broken color goes back to gold")
+local mc = GP.db.minimapColor
+check(mc[1] == 1 and mc[2] == 0 and mc[3] == 0.5, "a color is kept between 0 and 1")
+saved.alpha = 30
+GP:LoadSettings()
+check(GP.db.worldAlpha == 50, "but only once")
 
 STEP("without GatherMate2")
 GatherMate2 = nil

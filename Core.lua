@@ -26,7 +26,12 @@ GP.DEFAULTS = {
     minimap = true,        -- and on the minimap
     worldWidth = 4,        -- line width on the world map
     minimapWidth = 3,      -- and on the minimap
-    alpha = 85,            -- percent
+    worldAlpha = 85,       -- line opacity on the world map (percent)
+    minimapAlpha = 85,     -- and on the minimap
+    worldRouteColor = true,    -- world map lines in each route's own color
+    minimapRouteColor = true,  -- minimap lines too
+    worldColor = { 1, 0.82, 0 },   -- the world map's one color when worldRouteColor is off
+    minimapColor = { 1, 0.82, 0 }, -- and the minimap's
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
     minimapAngle = 200,
@@ -36,7 +41,8 @@ GP.DEFAULTS = {
 GP.RANGES = {
     worldWidth = { 1, 10 },
     minimapWidth = { 1, 8 },
-    alpha = { 20, 100 },
+    worldAlpha = { 10, 100 },
+    minimapAlpha = { 10, 100 },
     sight = { 0, 150 },
 }
 
@@ -68,8 +74,21 @@ function GP:LoadSettings()
     if db.sight == 50 and not db.sight100 then db.sight = nil end
     db.sight100 = true
     db.merge = nil   -- New route's "merge nodes closer than" until 1.3.0
+    -- one "Opacity" for both kinds of line until 1.5.0
+    if type(db.alpha) == "number" then
+        if db.worldAlpha == nil then db.worldAlpha = db.alpha end
+        if db.minimapAlpha == nil then db.minimapAlpha = db.alpha end
+    end
+    db.alpha = nil
     for k, v in pairs(self.DEFAULTS) do
-        if db[k] == nil then db[k] = v end
+        if type(v) == "table" then
+            local c = db[k]
+            local ok = type(c) == "table"
+            for i = 1, 3 do ok = ok and type(c[i]) == "number" end
+            db[k] = ok and { max(0, min(1, c[1])), max(0, min(1, c[2])), max(0, min(1, c[3])) } or { unpack(v) }
+        elseif db[k] == nil then
+            db[k] = v
+        end
     end
     for k, r in pairs(self.RANGES) do
         if type(db[k]) ~= "number" then db[k] = self.DEFAULTS[k] end
@@ -660,10 +679,23 @@ local function LinePool(frame, layer)
 end
 GP.LinePool = LinePool
 
-local function Paint(line, route, alpha, width)
-    local c = route.color
+local function Paint(line, c, alpha, width)
     line:SetVertexColor(c[1], c[2], c[3], alpha)
     line:SetThickness(width)
+end
+
+-- The color a route's line is drawn in: its own, or the one picked for that map
+-- ("world" or "minimap") on the Display tab
+function GP:LineColor(route, where)
+    local db = self.db
+    if db[where .. "RouteColor"] then return route.color end
+    return db[where .. "Color"]
+end
+
+-- Display tab's color for every line on that map ("world" or "minimap")
+function GP:SetLineColor(where, r, g, b)
+    self.db[where .. "Color"] = { r, g, b }
+    self:Changed()
 end
 
 ---------------------------------------------------------------------------
@@ -713,7 +745,7 @@ function Pin:Draw()
         local w, h = self:GetWidth(), self:GetHeight()
         -- the canvas is zoomed; keep lines the same width on screen
         local scale = self:GetEffectiveScale() / max(0.01, map:GetEffectiveScale())
-        local alpha = db.alpha / 100
+        local alpha = db.worldAlpha / 100
         for _, route in ipairs(db.routes) do
             local p, n = route.points, GP:NodeCount(route)
             if route.shown and not route.working and n >= 2 then
@@ -721,11 +753,12 @@ function Pin:Draw()
                 if ox then
                     -- thinner on a bigger map, where the route is small
                     local width = (own and db.worldWidth or max(1, db.worldWidth * 0.5)) / scale
+                    local color = GP:LineColor(route, "world")
                     for i = 1, n do
                         local j = i % n + 1
                         if not (n == 2 and i == 2) then
                             local line = pool:Get()
-                            Paint(line, route, alpha, width)
+                            Paint(line, color, alpha, width)
                             line:SetStartPoint("TOPLEFT", self, (ox + p[2 * i - 1] * sx) * w, -(oy + p[2 * i] * sy) * h)
                             line:SetEndPoint("TOPLEFT", self, (ox + p[2 * j - 1] * sx) * w, -(oy + p[2 * j] * sy) * h)
                         end
@@ -859,7 +892,9 @@ function GP:DrawMinimap(force)
     if rotate and not facing then facing = 0 end
 
     -- your place on each map that has a route showing
-    local maps, key = {}, ("%.1f:%.3f:%.1f:%d:%d"):format(radius, facing, half, db.minimapWidth, db.alpha)
+    local mc = db.minimapColor
+    local maps, key = {}, ("%.1f:%.3f:%.1f:%d:%d:%s:%.3f:%.3f:%.3f"):format(radius, facing, half, db.minimapWidth,
+        db.minimapAlpha, tostring(db.minimapRouteColor), mc[1], mc[2], mc[3])
     for _, route in ipairs(db.routes) do
         if route.shown and not route.working and maps[route.mapID] == nil then
             local x, y = PlayerPos(route.mapID)
@@ -874,7 +909,7 @@ function GP:DrawMinimap(force)
     local inside = half - 1
     local clip = MinimapIsRound() and ClipCircle or ClipSquare
     local c, s = cos(facing), sin(facing)
-    local alpha = db.alpha / 100
+    local alpha = db.minimapAlpha / 100
     pool:Begin()
     for _, route in ipairs(db.routes) do
         local at = maps[route.mapID]
@@ -882,6 +917,7 @@ function GP:DrawMinimap(force)
         if at and route.shown and not route.working and n >= 2 then
             local w, h = Yards(route.mapID)
             local p = route.points
+            local color = self:LineColor(route, "minimap")
             -- every node, in pixels from the minimap's middle (right and up)
             local sx, sy = {}, {}
             for i = 1, n do
@@ -896,7 +932,7 @@ function GP:DrawMinimap(force)
                     local ax, ay, bx, by = clip(sx[i], sy[i], sx[j], sy[j], inside)
                     if ax then
                         local line = pool:Get()
-                        Paint(line, route, alpha, db.minimapWidth)
+                        Paint(line, color, alpha, db.minimapWidth)
                         line:SetStartPoint("CENTER", f, ax, ay)
                         line:SetEndPoint("CENTER", f, bx, by)
                     end

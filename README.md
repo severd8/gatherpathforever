@@ -19,7 +19,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **As many routes as you like**, several per zone, each with its own color. Show or hide each one, rename it, edit it, or delete it.
 - **Routes that grow.** When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, where it adds the least walking. **Rebuild** reads every node again and finds the loop again.
 - **Route passes within** a distance of each node instead of right up to it (100 yards to start): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter, and nodes close together become one stop.
-- **Your look**: line width on the world map and on the minimap, and opacity.
+- **Your look**: line width, opacity and color, set apart for the world map and the minimap. Lines use each route's own color, or one color you pick for every route.
 - The same look as TauntMaster Forever, ToppedOff Forever, Outfitter Forever and BattleText Forever.
 
 ## Installation
@@ -46,7 +46,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 |---|---|
 | **Routes** | The routes in a zone: color, name (click to rename), Edit, Rebuild, Delete, nodes, length in yards, show |
 | **New route** | Zone, the nodes GatherMate2 knows there, name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
-| **Display** | Lines on the world map and the minimap, their widths, opacity, add new nodes to routes, minimap button |
+| **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; add new nodes to routes, minimap button |
 
 ### Commands
 
