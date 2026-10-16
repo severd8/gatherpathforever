@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.0
+
+- New **Restore defaults** button at the bottom of the **Display** tab. It puts every setting on that tab back as it was when you first installed GatherPath: line width, opacity and color on both maps, direction arrows, the line to the route, the range circle, adding new nodes and the minimap button. It asks first, and your routes are kept.
+- If you'd hidden the lines from the minimap button, they come back too.
+- The cards on the Display tab sit a little closer together to make room for the button.
+
 ## 1.9.0
 
 - New **line to the route** on the minimap: when you're away from your route, a dashed line in the route's color points from you to the nearest point of it, so you know where to join the loop. If the route is off the minimap, the line runs to the edge toward it. It goes away once you're within 20 yards of the route. Turn it off with **Line to the route** on the **Display** tab.

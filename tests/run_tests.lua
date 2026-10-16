@@ -627,6 +627,47 @@ check(GP.db.minimap == false)
 Click(ui.minimapSwitch)
 check(GP.db.minimap == true)
 
+STEP("restore defaults on the display tab")
+local routesBefore, angleBefore = #GP.db.routes, GP.db.minimapAngle
+GP.db.minimapAngle = 123
+GP.db.sight = 40
+Click(GP.minimapButton, "RightButton")   -- lines hidden from the minimap button
+GP.db.worldWidth, GP.db.minimapAlpha, GP.db.rangeYards = 9, 20, 180
+GP.db.worldRouteColor, GP.db.arrows, GP.db.arrowsReverse, GP.db.joinLine = false, false, true, false
+GP.db.range, GP.db.autoAdd, GP.db.minimapButton = true, false, false
+GP:SetLineColor("minimap", 0.1, 0.2, 0.3)
+GP.db.rangeColor = { 0, 0, 0 }
+GP:UpdateMinimapButton()
+check(ui.restoreDefaults, "a Restore defaults button")
+Click(ui.restoreDefaults)
+check(GP.confirmWindow:IsShown() and GP.db.worldWidth == 9, "asks first")
+Click(GP.confirmWindow.no)
+check(GP.db.worldWidth == 9, "Cancel changes nothing")
+Click(ui.restoreDefaults)
+Click(GP.confirmWindow.yes)
+for _, k in ipairs(GP.DISPLAY_KEYS) do
+    local v, d = GP.db[k], GP.DEFAULTS[k]
+    if type(d) == "table" then
+        check(v ~= d and v[1] == d[1] and v[2] == d[2] and v[3] == d[3], k .. " back to its default (a copy)")
+    else
+        check(v == d, k .. " back to its default")
+    end
+end
+local listed = {}
+for _, k in ipairs(GP.DISPLAY_KEYS) do listed[k] = true end
+local notOnTab = { minimapAngle = true, sight = true, nextColor = true }
+for k in pairs(GP.DEFAULTS) do
+    check(listed[k] or notOnTab[k], k .. ": every setting on the tab is restored")
+end
+check(GP.db.hiddenWas == nil and GP.db.worldMap and GP.db.minimap, "hidden lines shown again")
+check(GP.minimapButton:IsShown(), "the minimap button back")
+check(#GP.db.routes == routesBefore and GP.db.minimapAngle == 123 and GP.db.sight == 40,
+    "routes, the button's place and New route's slider kept")
+GP.db.minimapAngle, GP.db.sight = angleBefore, GP.DEFAULTS.sight
+GP:SetLineColor("minimap", 0.5, 0.5, 0.5)
+check(GP.DEFAULTS.minimapColor[1] == 1, "changing a color after doesn't touch the defaults")
+GP:RestoreDefaults()
+
 STEP("range circle on the minimap")
 check(GP.db.range == false and #Shown(GP.mm.ring) == 0, "off to start")
 check(GP.db.rangeYards == 100 and ui.rangeYards and ui.rangeAlpha, "100 yards, with sliders")

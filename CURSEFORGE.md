@@ -45,7 +45,7 @@ Install it with the CurseForge app, or download the file and unzip it into your 
 |---|---|
 | **Routes** | The routes in a zone: color, name (click to rename), Edit, Rebuild, Delete, nodes, length in yards, time for a lap, show |
 | **New route** | Zone, the nodes GatherMate2 knows there (with Select all for each kind), name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
-| **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; direction arrows (on or off, reversed), line to the route; the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button |
+| **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; direction arrows (on or off, reversed), line to the route; the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button; Restore defaults puts them all back |
 
 ### Commands
 

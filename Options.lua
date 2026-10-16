@@ -580,7 +580,7 @@ local function BuildDisplay(p)
     refs.worldRouteColor, refs.worldColor = LineColor(card, 12, -152, "world", "on the world map")
     refs.minimapRouteColor, refs.minimapColor = LineColor(card, COL2, -152, "minimap", "on the minimap")
 
-    local card4 = Card(p, "Following a route", 0, -224, PAGE_W, 90)
+    local card4 = Card(p, "Following a route", 0, -220, PAGE_W, 90)
     refs.arrowsSwitch = Setting(card4, "Show arrows", 12, -30, "arrows",
         "Small arrows along every route's line, on the world map and the minimap, showing which way round to ride the loop.")
     refs.arrowsReverse = Setting(card4, "Reverse direction", COL2, -30, "arrowsReverse",
@@ -590,7 +590,7 @@ local function BuildDisplay(p)
         "A dashed line on the minimap from you to the nearest point of a route showing in your zone, "
         .. "so you know where to join it. Gone once you're on the route.")
 
-    local card3 = Card(p, "Range circle", 0, -324, PAGE_W, 98)
+    local card3 = Card(p, "Range circle", 0, -316, PAGE_W, 98)
     refs.rangeSwitch = Setting(card3, "On the minimap", 12, -30, "range",
         "A circle round you on the minimap, as far as Find Herbs and Find Minerals show nodes, so you can see "
         .. "how close you need to get. Set the yards below.")
@@ -607,7 +607,7 @@ local function BuildDisplay(p)
         "How far round you the circle is drawn. Find Herbs and Find Minerals show nodes about 100 yards away.")
     refs.rangeAlpha = Slider(card3, "Circle opacity", COL2, -58, "rangeAlpha", "%")
 
-    local card2 = Card(p, "More", 0, -432, PAGE_W, 78)
+    local card2 = Card(p, "More", 0, -420, PAGE_W, 78)
     Setting(card2, "Add new nodes to routes", 12, -30, "autoAdd",
         "When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, "
         .. "where it adds the least walking.")
@@ -616,6 +616,16 @@ local function BuildDisplay(p)
         function() GP:UpdateMinimapButton() end)
     T.Note(card2, "Right-click the minimap button (or type /gpf hide, /gpf show) to hide every line for a while.",
         12, -56, PAGE_W - 24)
+
+    local restore = FlatButton(p, "Restore defaults", 150, 22)
+    restore:SetPoint("TOPLEFT", 0, -506)
+    T.Tooltip(restore, "Restore defaults", "Put every setting on this tab back as it was to start. "
+        .. "Your routes are kept.")
+    restore:SetScript("OnClick", function()
+        GP:Confirm("Put every setting on the Display tab back as it was to start? Your routes are kept.",
+            "Restore", function() GP:RestoreDefaults() end)
+    end)
+    refs.restoreDefaults = restore
 end
 
 ---------------------------------------------------------------------------

@@ -45,6 +45,15 @@ GP.DEFAULTS = {
     sight = 100,           -- where New route's "route passes within" starts (yards, 0 = go to every node)
     nextColor = 1,
 }
+-- The settings on the Display tab, which its Restore defaults button puts back
+-- (not routes, the minimap button's place, New route's slider or the remembered speed)
+GP.DISPLAY_KEYS = {
+    "worldMap", "minimap", "worldWidth", "minimapWidth", "worldAlpha", "minimapAlpha",
+    "worldRouteColor", "minimapRouteColor", "worldColor", "minimapColor",
+    "arrows", "arrowsReverse", "joinLine",
+    "range", "rangeYards", "rangeAlpha", "rangeColor",
+    "autoAdd", "minimapButton",
+}
 GP.RANGES = {
     worldWidth = { 1, 10 },
     minimapWidth = { 1, 8 },
@@ -120,6 +129,18 @@ function GP:LoadSettings()
         end
     end
     self.db = db
+end
+
+-- The Display tab's Restore defaults: every setting on it as it was to start
+function GP:RestoreDefaults()
+    local db = self.db
+    for _, k in ipairs(self.DISPLAY_KEYS) do
+        local v = self.DEFAULTS[k]
+        db[k] = type(v) == "table" and { unpack(v) } or v
+    end
+    db.hiddenWas = nil   -- lines hidden from the minimap button come back too
+    if self.UpdateMinimapButton then self:UpdateMinimapButton() end
+    self:Changed()
 end
 
 ---------------------------------------------------------------------------
