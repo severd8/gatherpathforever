@@ -374,6 +374,20 @@ GP.FormatYards = function(v)
     return (s:gsub("^,", "")) .. " yards"
 end
 
+-- The route on this map already called this (any case, spaces round it ignored), but not `except`
+function GP:RouteNamed(mapID, name, except)
+    local want = type(name) == "string" and name:match("^%s*(.-)%s*$"):lower()
+    if not want or want == "" then return nil end
+    for _, r in ipairs(self.db.routes) do
+        if r ~= except and r.mapID == mapID and r.name:match("^%s*(.-)%s*$"):lower() == want then return r end
+    end
+end
+
+local function NameTakenMessage(name, mapID)
+    return ("there's already a route called |cffffd100%s|r in %s. Give this one another name, "
+        .. "or Rebuild that one."):format(name, GP:MapName(mapID))
+end
+
 -- opts: mapID, kinds = { [kind] = { [name] = true } }, name, merge
 function GP:NewRoute(opts)
     if not self:HasGatherMate() then
@@ -390,10 +404,16 @@ function GP:NewRoute(opts)
         Print("still working out the last route. Try again in a moment.")
         return nil
     end
+    local name = (type(opts.name) == "string" and opts.name:match("^%s*(.-)%s*$")) or ""
+    if name == "" then name = self:RouteName(opts.mapID, opts.kinds) end
+    if self:RouteNamed(opts.mapID, name) then
+        Print(NameTakenMessage(name, opts.mapID))
+        return nil
+    end
     local route = {
         id = self.db.nextID,
         mapID = opts.mapID,
-        name = (opts.name and opts.name:match("%S") and opts.name) or self:RouteName(opts.mapID, opts.kinds),
+        name = name,
         kinds = opts.kinds,
         merge = opts.merge or 0,
         color = { unpack(self.COLORS[(self.db.nextColor - 1) % #self.COLORS + 1]) },
@@ -455,9 +475,16 @@ end
 
 function GP:RenameRoute(route, name)
     if type(name) == "string" and name:match("%S") then
-        route.name = name:match("^%s*(.-)%s*$")
+        name = name:match("^%s*(.-)%s*$")
+        if self:RouteNamed(route.mapID, name, route) then
+            Print(NameTakenMessage(name, route.mapID))
+            return false
+        end
+        route.name = name
         self:Changed()
+        return true
     end
+    return false
 end
 
 function GP:SetRouteShown(route, on)

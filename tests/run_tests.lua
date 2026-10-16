@@ -150,6 +150,24 @@ GP:NewRoute({ mapID = E, kinds = { Mining = { ["Tin Vein"] = true } } })
 RunJobs()
 check(#GP.db.routes == 2 and logHas("no node of those kinds"), "no nodes there: no route")
 
+STEP("one name per route in a zone")
+check(GP:NewRoute({ mapID = E, kinds = { Mining = { ["Copper Vein"] = true } } }) == nil and #GP.db.routes == 2
+    and logHas("already a route called |cffffd100Copper Vein|r in Elwynn Forest"), "the same made-up name: no copy")
+check(GP:NewRoute({ mapID = E, kinds = { Mining = { ["Tin Vein"] = true } }, name = "  copper VEIN " }) == nil
+    and #GP.db.routes == 2, "a typed name, any case: no copy")
+GP:OpenConfig("new")
+ui.newZone.setter(E)
+Click(SwitchFor("Copper Vein"))
+ui.newName:SetText("Copper Vein")
+Click(ui.makeButton)
+check(#GP.db.routes == 2 and not GP:Busy() and GP.config.currentTab == "new"
+    and ui.newName:GetText() == "Copper Vein", "from the window: stays on New route with the name kept")
+Click(SwitchFor("Copper Vein"))
+ui.newName:SetText("")
+local away = GP:NewRoute({ mapID = W, kinds = { Mining = { ["Copper Vein"] = true } } })
+check(away and away.name == "Copper Vein", "the same name in another zone is fine")
+RunJobs()
+
 ---------------------------------------------------------------------------
 STEP("world map lines")
 local pin = GP.provider.pin
@@ -271,6 +289,13 @@ row.name:SetFocus()
 row.name:SetText("   ")
 row.name:ClearFocus()
 check(route.name == "Elwynn herbs" and row.name:GetText() == "Elwynn herbs", "a blank name is ignored")
+row.name:SetFocus()
+row.name:SetText("copper vein")
+row.name:ClearFocus()
+check(route.name == "Elwynn herbs" and row.name:GetText() == "Elwynn herbs"
+    and logHas("already a route called |cffffd100copper vein|r"), "not to another route's name")
+check(GP:RenameRoute(route, "ELWYNN HERBS") and route.name == "ELWYNN HERBS", "its own name in new case is fine")
+GP:RenameRoute(route, "Elwynn herbs")
 Click(row.show)
 check(route.shown == false and not row.show:IsOn(), "hidden")
 Click(row.show)
