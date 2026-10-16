@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0
+
+- **New route** on the **Routes** tab now opens New route in the zone you were looking at, so you only have to pick the nodes. Everything else still starts blank. The **New route** tab on the left still starts with no zone.
+
 ## 1.3.0
 
 - **Combine nodes within** is gone: **Route passes within** now does its job. Nodes close together become one stop on their own, and the route still comes within your distance of every node.

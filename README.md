@@ -32,7 +32,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 ## Using it
 
 1. **Open GatherPath**: type `/gpf`, or left-click the minimap button.
-2. **New route**: pick the zone (or click **My zone**) and switch on the nodes you want. The number beside each is how many GatherMate2 knows there.
+2. **New route**: click **New route** on the **Routes** tab to start in the zone shown there, or pick the zone (or click **My zone**). Switch on the nodes you want. The number beside each is how many GatherMate2 knows there.
 3. Leave the name blank to have one made from what you picked, or type your own. Click **Make route**.
 4. The route shows on the **Routes** tab and on your maps. Follow the line.
 

@@ -119,7 +119,9 @@ local function BuildRoutes(p)
 
     local make = FlatButton(p, "New route", 110)
     make:SetPoint("TOPRIGHT", 0, 0)
-    make:SetScript("OnClick", function() GP:OpenConfig("new") end)
+    make:SetScript("OnClick", function() GP:NewRouteInWindow(routesZone) end)
+    T.Tooltip(make, "New route", "Make a route in the zone picked here.")
+    refs.routesNew = make
 
     local holder = CreateFrame("Frame", nil, p)
     holder:SetPoint("TOPLEFT", 0, -34)
@@ -523,6 +525,13 @@ function GP:BuildConfig()
         end,
     })
     return self.config
+end
+
+-- Opens New route blank but on this zone (the Routes tab's New route button)
+function GP:NewRouteInWindow(mapID)
+    self:OpenConfig("new")
+    newZone = mapID
+    self:RefreshConfig()
 end
 
 -- Opens New route filled in from this route; Save changes then changes it
