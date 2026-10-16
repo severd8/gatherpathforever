@@ -139,6 +139,10 @@ MAPS = {
 }
 PLAYER = { map = 1429, x = 0.5, y = 0.5 }
 VIEW_RADIUS = 150
+UNIT_SPEED = 7
+SECRET = setmetatable({}, { __lt = function() error("compared a secret value") end, __le = function() error("compared a secret value") end })
+function issecretvalue(v) return v == SECRET end
+function GetUnitSpeed(unit) return UNIT_SPEED, UNIT_SPEED, 7, 4.7 end
 
 C_Map = {}
 function C_Map.GetMapInfo(id) local m = MAPS[id] return m and { mapID = id, name = m.name } end

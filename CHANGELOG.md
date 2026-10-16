@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.0
+
+- New **line to the route** on the minimap: when you're away from your route, a dashed line in the route's color points from you to the nearest point of it, so you know where to join the loop. If the route is off the minimap, the line runs to the edge toward it. It goes away once you're within 20 yards of the route. Turn it off with **Line to the route** on the **Display** tab.
+- Each route on the **Routes** tab now shows **about how long one lap takes**. GatherPath remembers your speed the last time you rode a mount and uses it; until you've ridden one, it says "on foot".
+- The Display tab's **Direction arrows** card is now called **Following a route** and holds the new switch too.
+
 ## 1.8.0
 
 - New **direction arrows** along your route lines, on the world map and the minimap, so you can see which way round to ride the loop and never double back by mistake. They take the line's color, opacity and width, and stay the same size as you zoom.

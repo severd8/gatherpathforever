@@ -219,7 +219,9 @@ local function BuildRoutes(p)
                 end
                 table.sort(kinds)
                 -- two short lines, so nothing is cut off
-                local line2 = (route.sight or 0) > 0 and ("\nPasses within " .. route.sight .. " yards") or ""
+                local line2 = "\n" .. GP:LapTime(route):gsub("^%l", string.upper) .. " a lap"
+                    .. (GP.db.speed and "" or " on foot")
+                    .. ((route.sight or 0) > 0 and ("  -  passes within " .. route.sight .. " yards") or "")
                 r.info:SetText(("%d nodes  -  %s round  -  %s%s"):format(GP:RouteNodes(route),
                     GP.FormatYards(route.length or GP:RouteLength(route)), table.concat(kinds, ", "), line2))
             end
@@ -578,14 +580,17 @@ local function BuildDisplay(p)
     refs.worldRouteColor, refs.worldColor = LineColor(card, 12, -152, "world", "on the world map")
     refs.minimapRouteColor, refs.minimapColor = LineColor(card, COL2, -152, "minimap", "on the minimap")
 
-    local card4 = Card(p, "Direction arrows", 0, -224, PAGE_W, 60)
+    local card4 = Card(p, "Following a route", 0, -224, PAGE_W, 90)
     refs.arrowsSwitch = Setting(card4, "Show arrows", 12, -30, "arrows",
         "Small arrows along every route's line, on the world map and the minimap, showing which way round to ride the loop.")
     refs.arrowsReverse = Setting(card4, "Reverse direction", COL2, -30, "arrowsReverse",
         "Turn the arrows round, to ride every loop the other way.")
     AddRefresher(function() refs.arrowsReverse:SetAlpha(GP.db.arrows and 1 or 0.4) end)
+    refs.joinSwitch = Setting(card4, "Line to the route", 12, -60, "joinLine",
+        "A dashed line on the minimap from you to the nearest point of a route showing in your zone, "
+        .. "so you know where to join it. Gone once you're on the route.")
 
-    local card3 = Card(p, "Range circle", 0, -294, PAGE_W, 98)
+    local card3 = Card(p, "Range circle", 0, -324, PAGE_W, 98)
     refs.rangeSwitch = Setting(card3, "On the minimap", 12, -30, "range",
         "A circle round you on the minimap, as far as Find Herbs and Find Minerals show nodes, so you can see "
         .. "how close you need to get. Set the yards below.")
@@ -602,7 +607,7 @@ local function BuildDisplay(p)
         "How far round you the circle is drawn. Find Herbs and Find Minerals show nodes about 100 yards away.")
     refs.rangeAlpha = Slider(card3, "Circle opacity", COL2, -58, "rangeAlpha", "%")
 
-    local card2 = Card(p, "More", 0, -402, PAGE_W, 78)
+    local card2 = Card(p, "More", 0, -432, PAGE_W, 78)
     Setting(card2, "Add new nodes to routes", 12, -30, "autoAdd",
         "When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, "
         .. "where it adds the least walking.")

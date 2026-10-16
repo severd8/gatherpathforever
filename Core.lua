@@ -38,6 +38,7 @@ GP.DEFAULTS = {
     rangeColor = { 0.25, 0.80, 1.00 },  -- its color
     arrows = true,         -- arrows along the lines show which way round to ride
     arrowsReverse = false, -- and they point the other way
+    joinLine = true,       -- a dashed line on the minimap from you to the nearest point of a route
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
     minimapAngle = 200,
@@ -410,6 +411,39 @@ GP.FormatYards = function(v)
     return (s:gsub("^,", "")) .. " yards"
 end
 
+-- How fast you travel, in yards a second, for a lap's time: the last mount
+-- speed seen (db.speed), else your speed on foot (7)
+GP.FOOT_SPEED = 7
+function GP:Speed()
+    local s = self.db and self.db.speed
+    return type(s) == "number" and s > 0 and s or self.FOOT_SPEED
+end
+
+-- Remember your ground speed while it's faster than on foot (mounted). The
+-- game can hide it (a secret value), then it's left alone. True if it changed.
+function GP:SampleSpeed()
+    if not (GetUnitSpeed and self.db) then return false end
+    local ok, changed = pcall(function()
+        local _, run = GetUnitSpeed("player")
+        if issecretvalue and issecretvalue(run) then return false end
+        if type(run) ~= "number" or run <= self.FOOT_SPEED + 0.5 or run > 100 then return false end
+        run = floor(run * 10 + 0.5) / 10
+        if run == self.db.speed then return false end
+        self.db.speed = run
+        return true
+    end)
+    return ok and changed or false
+end
+
+-- About how long one lap of a route takes at Speed(), in words
+function GP:LapTime(route)
+    local secs = (route.length or self:RouteLength(route)) / self:Speed()
+    if secs < 60 then return "under a minute" end
+    local mins = floor(secs / 60 + 0.5)
+    if mins < 60 then return ("about %d min"):format(mins) end
+    return ("about %d h %02d min"):format(floor(mins / 60), mins % 60)
+end
+
 -- The route on this map already called this (any case, spaces round it ignored), but not `except`
 function GP:RouteNamed(mapID, name, except)
     local want = type(name) == "string" and name:match("^%s*(.-)%s*$"):lower()
@@ -748,6 +782,42 @@ local function DrawArrow(pool, rel, point, x, y, dx, dy, size, color, alpha, wid
 end
 GP.ARROW_GAP = { world = 80, minimap = 40 }   -- pixels on screen between arrows
 
+-- The point of a loop (xs, ys, n stops; 2 stops: one leg) nearest to px, py:
+-- x, y and how far away it is
+local function NearestOnLoop(xs, ys, n, px, py)
+    local bx, by, best
+    local legs = n == 2 and 1 or n
+    for i = 1, legs do
+        local j = i % n + 1
+        local ax, ay = xs[i], ys[i]
+        local dx, dy = xs[j] - ax, ys[j] - ay
+        local len2 = dx * dx + dy * dy
+        local t = len2 > 0 and max(0, min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) or 0
+        local x, y = ax + dx * t, ay + dy * t
+        local d = (x - px) ^ 2 + (y - py) ^ 2
+        if not best or d < best then bx, by, best = x, y, d end
+    end
+    if best then return bx, by, sqrt(best) end
+end
+GP.NearestOnLoop = NearestOnLoop
+
+-- Dashes from the middle (0, 0) toward x, y, as far as `reach` pixels at most
+GP.JOIN_DASH, GP.JOIN_GAP, GP.JOIN_MIN = 6, 4, 20   -- pixels, pixels, yards (closer: no line)
+local function DrawJoin(pool, rel, x, y, reach, color, alpha, width)
+    local d = sqrt(x * x + y * y)
+    if d <= 0 then return end
+    local ux, uy = x / d, y / d
+    local stop, at = min(d, reach), 0
+    while at < stop do
+        local to = min(at + GP.JOIN_DASH, stop)
+        local line = pool:Get()
+        Paint(line, color, alpha, width)
+        line:SetStartPoint("CENTER", rel, ux * at, uy * at)
+        line:SetEndPoint("CENTER", rel, ux * to, uy * to)
+        at = to + GP.JOIN_GAP
+    end
+end
+
 ---------------------------------------------------------------------------
 -- World map: one pin over the whole map holds the lines
 ---------------------------------------------------------------------------
@@ -932,12 +1002,21 @@ function GP:SetupMinimap()
     f.pool = LinePool(f, "ARTWORK")
     f.ring = LinePool(f, "ARTWORK")
     f.arrows = LinePool(f, "ARTWORK")
+    f.join = LinePool(f, "ARTWORK")
+    f.speedWait = 0
     f.wait = 0
     f:SetScript("OnUpdate", function(frame, elapsed)
         frame.wait = frame.wait - elapsed
         if frame.wait > 0 then return end
         frame.wait = 0.03
         self:DrawMinimap()
+        frame.speedWait = frame.speedWait - 1
+        if frame.speedWait <= 0 then
+            frame.speedWait = 60   -- about every 2 seconds
+            if self:SampleSpeed() and self.config and self.config:IsShown() and self.RefreshConfig then
+                self:RefreshConfig()
+            end
+        end
     end)
     self.mm = f
 end
@@ -988,6 +1067,7 @@ function GP:DrawMinimap(force)
         if f.drew then
             pool:Begin(); pool:Done()
             f.arrows:Begin(); f.arrows:Done()
+            f.join:Begin(); f.join:Done()
             f.drew = false; f.last = nil
         end
         return
@@ -1000,7 +1080,7 @@ function GP:DrawMinimap(force)
     -- your place on each map that has a route showing
     local mc = db.minimapColor
     local maps, key = {}, ("%.1f:%.3f:%.1f:%d:%d:%s:%.3f:%.3f:%.3f:%s:%s"):format(radius, facing, half, db.minimapWidth,
-        db.minimapAlpha, tostring(db.minimapRouteColor), mc[1], mc[2], mc[3], tostring(db.arrows), tostring(db.arrowsReverse))
+        db.minimapAlpha, tostring(db.minimapRouteColor), mc[1], mc[2], mc[3], tostring(db.arrows), tostring(db.arrowsReverse)) .. ":" .. tostring(db.joinLine)
     for _, route in ipairs(db.routes) do
         if route.shown and not route.working and maps[route.mapID] == nil then
             local x, y = PlayerPos(route.mapID)
@@ -1019,6 +1099,7 @@ function GP:DrawMinimap(force)
     local round = MinimapIsRound()
     local size = max(7, db.minimapWidth * 3)
     local arrows = f.arrows
+    local join   -- the nearest point of any route: { x, y, distance, color }
     pool:Begin()
     arrows:Begin()
     for _, route in ipairs(db.routes) do
@@ -1048,6 +1129,10 @@ function GP:DrawMinimap(force)
                     end
                 end
             end
+            if db.joinLine then
+                local x, y, d = NearestOnLoop(sx, sy, n, 0, 0)
+                if x and (not join or d < join[3]) then join = { x, y, d, color } end
+            end
             if db.arrows then
                 -- only arrows wholly on the minimap
                 local room = inside - size
@@ -1062,6 +1147,18 @@ function GP:DrawMinimap(force)
     end
     pool:Done()
     arrows:Done()
+    f.join:Begin()
+    -- off the route: dashes from you toward it, up to the minimap's edge
+    if join and join[3] > self.JOIN_MIN * pxPerYard then
+        local reach = inside
+        if not round then
+            -- to the square's edge in that direction
+            local ax, ay = math.abs(join[1]) / join[3], math.abs(join[2]) / join[3]
+            reach = inside / max(ax, ay, 0.001)
+        end
+        DrawJoin(f.join, f, join[1], join[2], reach, join[4], alpha, max(1, db.minimapWidth - 1))
+    end
+    f.join:Done()
     f.drew = true
 end
 

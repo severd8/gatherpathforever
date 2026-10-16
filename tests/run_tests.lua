@@ -489,7 +489,7 @@ GP:OpenConfig("routes")
 local nearRow
 for _, r in ipairs(ui.routeRows) do if r.route == nearRoute then nearRow = r end end
 check(nearRow and nearRow.info:GetText():find("7 nodes", 1, true)
-    and nearRow.info:GetText():find("\nPasses within 50 yards", 1, true), "listed with its distance, on a second line")
+    and nearRow.info:GetText():find("a lap on foot  -  passes within 50 yards", 1, true), "listed with its distance, on a second line")
 local stopsBefore = GP:NodeCount(nearRoute)
 gm:Add(E, "Herb Gathering", 1, 0.5, 0.43)
 check(GP:NodeCount(nearRoute) == stopsBefore, "a new node the route already passes near isn't added")
@@ -765,6 +765,89 @@ check(#Shown(GP.mm.arrows) == 0, "minimap lines off: its arrows go too")
 Click(ui.minimapSwitch)
 herbs.points = herbPoints
 for i, r in ipairs(GP.db.routes) do r.shown = wasShown[i] end
+GP:Changed()
+
+STEP("time for a lap")
+local lapRoute = { mapID = E, points = {}, length = 700 }
+GP.db.speed = nil
+check(GP:Speed() == 7 and GP:LapTime(lapRoute) == "about 2 min", "on foot: 7 yards a second")
+lapRoute.length = 300
+check(GP:LapTime(lapRoute) == "under a minute")
+lapRoute.length = 7 * 60 * 75
+check(GP:LapTime(lapRoute) == "about 1 h 15 min", "hours and minutes")
+UNIT_SPEED = 7
+check(GP:SampleSpeed() == false and GP.db.speed == nil, "on foot: nothing remembered")
+UNIT_SPEED = 14
+check(GP:SampleSpeed() == true and GP.db.speed == 14, "mounted: its speed is remembered")
+check(GP:SampleSpeed() == false, "the same speed again: no change")
+lapRoute.length = 14 * 60 * 6
+check(GP:LapTime(lapRoute) == "about 6 min", "laps at that speed")
+UNIT_SPEED = 7
+GP:SampleSpeed()
+check(GP.db.speed == 14, "kept after you get off")
+UNIT_SPEED = SECRET
+check(GP:SampleSpeed() == false and GP.db.speed == 14, "a hidden speed is left alone")
+UNIT_SPEED = 7
+GP:OpenConfig("routes")
+local lapRow = ui.routeRows[1]
+check(lapRow.info:GetText():find("\nAbout %d+ min a lap") or lapRow.info:GetText():find("\nUnder a minute a lap"),
+    "the Routes tab shows it on the second line")
+check(not lapRow.info:GetText():find("on foot", 1, true), "mounted speed known: no 'on foot'")
+GP.db.speed = nil
+GP:RefreshConfig()
+check(lapRow.info:GetText():find("a lap on foot", 1, true), "otherwise it says on foot")
+
+STEP("line to the route on the minimap")
+local nx, ny, nd = GP.NearestOnLoop({ 0, 100, 100 }, { 10, 10, 50 }, 3, 50, 0)
+check(nx == 50 and ny == 10 and nd == 10, "the nearest point can be along a leg")
+nx, ny, nd = GP.NearestOnLoop({ 0, 100 }, { 10, 10 }, 2, -30, 50)
+check(nx == 0 and ny == 10 and nd == 50, "or a stop")
+check(GP.db.joinLine == true and ui.joinSwitch, "on to start, with a switch")
+local wasShown2 = {}
+for i, r in ipairs(GP.db.routes) do wasShown2[i] = r.shown; r.shown = (r == herbs) end
+local herbPoints2 = herbs.points
+-- a loop 100 yards north of you: 46.7 pixels up
+local yn = 100 / 1066
+herbs.points = { 0.45, 0.5 - yn, 0.55, 0.5 - yn, 0.5, 0.5 - 3 * yn }
+PLAYER.x, PLAYER.y = 0.5, 0.5
+GP:Changed()
+local jl = Shown(GP.mm.join)
+check(#jl > 2, "dashes toward the route")
+local up = 100 * 70 / 150
+for _, l in ipairs(jl) do
+    check(near(l.__from[1], 0, 0.01) and near(l.__to[1], 0, 0.01) and l.__to[2] > l.__from[2], "straight up (north)")
+    check(l.__to[2] <= up + 0.01, "no further than the route")
+end
+check(near(jl[1].__from[2], 0, 0.01) and near(jl[1].__to[2], 6, 0.01) and near(jl[2].__from[2], 10, 0.01), "6 on, 4 off")
+check(jl[1].__color[1] == herbs.color[1] and jl[1].__thickness == 2, "the route's color, a little thinner")
+-- far away (500 yards north): dashes go to the minimap's edge
+yn = 500 / 1066
+herbs.points = { 0.45, 0.5 - yn, 0.55, 0.5 - yn, 0.5, 0.5 - 2 * yn }
+GP:Changed()
+jl = Shown(GP.mm.join)
+check(#jl > 0 and jl[#jl].__to[2] > 69 - 10 and jl[#jl].__to[2] <= 69.01, "a route off the minimap: up to its edge")
+-- on the route: no line
+yn = 10 / 1066
+herbs.points = { 0.45, 0.5 - yn, 0.55, 0.5 - yn, 0.5, 0.5 - 30 * yn }
+GP:Changed()
+check(#Shown(GP.mm.join) == 0, "within 20 yards of the route: no line")
+herbs.points = { 0.45, 0.5 - 100 / 1066, 0.55, 0.5 - 100 / 1066, 0.5, 0.5 - 300 / 1066 }
+GP:Changed()
+check(#Shown(GP.mm.join) > 0)
+Click(ui.joinSwitch)
+check(GP.db.joinLine == false and #Shown(GP.mm.join) == 0, "switched off")
+GP.db.joinLine = true
+GP:DrawMinimap()
+check(#Shown(GP.mm.join) > 0, "back on, without forcing a redraw")
+Click(ui.minimapSwitch)
+check(#Shown(GP.mm.join) == 0, "minimap lines off: it goes too")
+Click(ui.minimapSwitch)
+PLAYER.x = 0.5 + 0.0005
+GP:DrawMinimap()
+check(#Shown(GP.mm.join) > 0, "follows you as you move")
+PLAYER.x = 0.5
+herbs.points = herbPoints2
+for i, r in ipairs(GP.db.routes) do r.shown = wasShown2[i] end
 GP:Changed()
 
 ---------------------------------------------------------------------------

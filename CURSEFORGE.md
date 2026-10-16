@@ -18,6 +18,8 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **Routes that grow.** When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, where it adds the least walking. **Rebuild** reads every node again and finds the loop again.
 - **Route passes within** a distance of each node instead of right up to it (100 yards to start): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter, and nodes close together become one stop.
 - **Direction arrows** along the lines on both maps show which way round to ride each loop. Reverse them or turn them off on the Display tab.
+- **Line to the route** on the minimap: when you are off your route, a dashed line points from you to its nearest point, so you know where to join it.
+- **Time for a lap**: each route shows about how long one lap takes at your mount's speed (remembered from the last time you rode).
 - **Range circle** on the minimap (off to start): a ring round you, 100 yards to start, as far as Find Herbs and Find Minerals show nodes. Pick its color, opacity and size.
 - **Your look**: line width, opacity and color, set apart for the world map and the minimap. Lines use each route's own color, or one color you pick for every route.
 - The same look as TauntMaster Forever, ToppedOff Forever, Outfitter Forever and BattleText Forever.
@@ -41,9 +43,9 @@ Install it with the CurseForge app, or download the file and unzip it into your 
 
 | Tab | What's there |
 |---|---|
-| **Routes** | The routes in a zone: color, name (click to rename), Edit, Rebuild, Delete, nodes, length in yards, show |
+| **Routes** | The routes in a zone: color, name (click to rename), Edit, Rebuild, Delete, nodes, length in yards, time for a lap, show |
 | **New route** | Zone, the nodes GatherMate2 knows there (with Select all for each kind), name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
-| **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; direction arrows (on or off, reversed); the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button |
+| **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; direction arrows (on or off, reversed), line to the route; the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button |
 
 ### Commands
 
