@@ -16,8 +16,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **On the world map**, on the zone's map and thinner on the continent's, and **on the minimap**, round you, turning with it if your minimap turns.
 - **As many routes as you like**, several per zone, each with its own color. Show or hide each one, rename it, edit it, or delete it.
 - **Routes that grow.** When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, where it adds the least walking. **Rebuild** reads every node again and finds the loop again.
-- **Combine nodes within** a distance into one stop if you like, so the route has fewer turns.
-- **Route passes within** a distance of each node instead of right up to it (100 yards to start): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter.
+- **Route passes within** a distance of each node instead of right up to it (100 yards to start): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter, and nodes close together become one stop.
 - **Your look**: line width on the world map and on the minimap, and opacity.
 - The same look as TauntMaster Forever, ToppedOff Forever, Outfitter Forever and BattleText Forever.
 
@@ -32,7 +31,7 @@ Install it with the CurseForge app, or download the file and unzip it into your 
 3. Leave the name blank to have one made from what you picked, or type your own. Click **Make route**.
 4. The route shows on the **Routes** tab and on your maps. Follow the line.
 
-- **Edit** a route to change its zone, nodes, name, combine distance or pass distance; it finds the loop again when you save.
+- **Edit** a route to change its zone, nodes, name or pass distance; it finds the loop again when you save.
 - **Rebuild** a route after gathering more of a zone, so it takes in every node GatherMate2 knows now.
 - **Hide every line for a while**: right-click the minimap button, or type `/gpf hide` (and `/gpf show`).
 
@@ -41,7 +40,7 @@ Install it with the CurseForge app, or download the file and unzip it into your 
 | Tab | What's there |
 |---|---|
 | **Routes** | The routes in a zone: color, name (click to rename), Edit, Rebuild, Delete, nodes, length in yards, show |
-| **New route** | Zone, the nodes GatherMate2 knows there, name, combine nodes within, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
+| **New route** | Zone, the nodes GatherMate2 knows there, name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
 | **Display** | Lines on the world map and the minimap, their widths, opacity, add new nodes to routes, minimap button |
 
 ### Commands

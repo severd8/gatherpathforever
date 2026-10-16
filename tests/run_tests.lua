@@ -55,10 +55,13 @@ do
     check(#O.Solve({}) == 0 and #O.Solve({ { 1, 1 } }) == 1, "0 and 1 nodes")
 end
 do
-    local merged = O.Merge({ { 0, 0 }, { 10, 0 }, { 20, 0 }, { 200, 0 } }, 12)
-    check(#merged == 2, "nodes in a chain 10 yards apart merge into one")
-    check(near(merged[1][1], 10) and merged[1].count == 3, "in the middle of them")
-    check(#O.Merge({ { 0, 0 }, { 10, 0 } }, 0) == 2, "merge off keeps every node")
+    local g = O.Group({ { 0, 0 }, { 10, 0 }, { 20, 0 }, { 200, 0 } }, 12)
+    check(#g == 3, "nodes within 12 yards of the first group together (not a whole chain)")
+    check(near(g[1][1], 5) and g[1].count == 2 and near(g[1].reach, 5), "in the middle of them")
+    check(g[3].count == 1 and g[3].reach == 0, "a lone node is its own spot")
+    g = O.Group({ { 0, 0 }, { 10, 0 }, { 10, 0 }, { 10, 0 }, { -10, 0 } }, 10)
+    check(#g == 1 and g[1].reach <= 10, "never leaves a node further than the radius from its spot")
+    check(#O.Group({ { 0, 0 }, { 10, 0 } }, 0) == 2, "radius 0 keeps every node")
     local pts = { { 0, 0 }, { 100, 0 }, { 100, 100 }, { 0, 100 } }
     local at, cost = O.BestInsert(pts, { 1, 2, 3, 4 }, { 50, -10 })
     check(at == 1 and cost > 0 and cost < 5, "a new node goes in the leg it's beside")
@@ -106,10 +109,25 @@ do
         for _, r in ipairs({ 20, 50, 120 }) do
             local s2 = O.Shortcut(f, r)
             check(#s2 >= 2 and covered(f, s2, r), "random nodes covered at " .. r)
+            -- clustered too (herbs grow in patches)
+            local patch = {}
+            for c = 1, 15 do
+                local cx, cy = math.random() * 1200, math.random() * 900
+                for _ = 1, 4 do patch[#patch + 1] = { cx + math.random() * 30, cy + math.random() * 30 } end
+            end
+            check(covered(patch, O.Shortcut(patch, r), r), "patches covered at " .. r)
             check(loopLength(s2) <= full + 0.01, "never longer than going to every node")
         end
     end
     check(#O.Shortcut({ { 0, 0 }, { 10, 0 } }, 50) == 2, "two nodes stay two stops")
+    -- patches of nodes: one stop each, and the route only comes within reach of them
+    local patches = {}
+    for c = 0, 4 do
+        for k = 0, 4 do patches[#patches + 1] = { c * 400 + (k % 2) * 12, (c % 2) * 300 + math.floor(k / 2) * 12 } end
+    end
+    local ps = O.Shortcut(patches, 60)
+    check(#ps <= 5 and covered(patches, ps, 60), "a patch of nodes is one stop")
+    check(loopLength(ps) < O.Length(patches, O.Solve(patches)) - 300, "and cuts the corners")
 end
 
 ---------------------------------------------------------------------------
@@ -178,15 +196,15 @@ Click(SwitchFor("Silverleaf"))
 check(SwitchFor("Peacebloom"):IsOn() and not ui.makeButton.disabled)
 check(ui.sightSlider:GetValue() == 100, "new routes pass within 100 yards unless you change it")
 ui.sightSlider:SetValue(0)   -- this route goes right up to every node
-ui.mergeSlider:SetValue(10)
+check(ui.mergeSlider == nil, "no Combine nodes within slider (Route passes within groups nodes itself)")
 ui.newName:SetText("Picked")
 
 STEP("New route always opens blank")
 GP:OpenConfig("routes")
-GP.db.sight, GP.db.merge = 90, 20   -- what 1.1.0 remembered from the last route
+GP.db.sight = 90   -- what 1.1.0 remembered from the last route
 GP:OpenConfig("new")
 check(ui.newZone.getter() == nil and ui.newName:GetText() == "" and not SwitchFor("Peacebloom"), "no zone, name or picks")
-check(ui.sightSlider:GetValue() == 100 and ui.mergeSlider:GetValue() == 0, "sliders back at their defaults")
+check(ui.sightSlider:GetValue() == 100, "slider back at its default")
 GP.config:Hide()
 GP:OpenConfig("new")
 Click(ui.myZone)
@@ -222,7 +240,6 @@ STEP("with a route listed, the rest of the window still fills in")
 GP:OpenConfig("new")
 check(#ui.newZone.keys > 0, "New route's zone menu has the zones")
 check(ui.newZone:GetText() == "Pick a zone", "and reads Pick a zone")
-check(ui.mergeSlider.valueText:GetText() == "Off", "combine shows its value")
 check(ui.sightSlider.valueText:GetText() == "100 yards", "passes within shows its value")
 check(ui.newNote:GetText():find("Pick a zone above", 1, true), "the list says what to do")
 GP:NewRoute({ mapID = E, kinds = { Herb = { Peacebloom = true } }, name = "busy" })
@@ -445,7 +462,7 @@ local newPage = GP.config.pages.new
 check(GP.config.currentTab == "new" and newPage.title:GetText() == "Edit route", "Edit opens the route's options")
 check(ui.newZone.getter() == E and ui.newName:GetText() == "Elwynn herbs", "its zone and name")
 check(SwitchFor("Peacebloom"):IsOn() and SwitchFor("Silverleaf"):IsOn() and not SwitchFor("Copper Vein"):IsOn(), "its nodes")
-check(ui.sightSlider:GetValue() == 0 and ui.mergeSlider:GetValue() == 0, "its merge and pass within")
+check(ui.sightSlider:GetValue() == 0, "its pass within")
 check(ui.makeButton:GetText() == "Save changes" and ui.cancelButton:IsShown())
 Click(SwitchFor("Silverleaf"))
 Click(ui.cancelButton)
@@ -486,10 +503,10 @@ Click(ui.makeButton)
 RunJobs()
 check(route.name == "Peacebloom and Silverleaf" and GP:NodeCount(route) == #GP:CollectNodes(E, route.kinds),
     "a blank name is made from the nodes")
-check(GP:EditRoute(route, { kinds = route.kinds, name = "Elwynn herbs", merge = 0, sight = 0 }))
+check(GP:EditRoute(route, { kinds = route.kinds, name = "Elwynn herbs", sight = 0 }))
 RunJobs()
 check(route.name == "Elwynn herbs" and route.mapID == E, "its own zone when none is given")
-check(GP:EditRoute(route, { kinds = route.kinds, name = " elwynn HERBS", merge = 0, sight = 0 }), "keeping its own name is fine")
+check(GP:EditRoute(route, { kinds = route.kinds, name = " elwynn HERBS", sight = 0 }), "keeping its own name is fine")
 RunJobs()
 check(route.name == "elwynn HERBS")
 GP:RenameRoute(route, "Elwynn herbs")
@@ -541,6 +558,11 @@ check(GP.db.sight == 100, "1.1.0's 50 yards becomes the new 100")
 GP.db.sight = 50
 GP:LoadSettings()
 check(GP.db.sight == 50, "but 50 picked later stays")
+local points = #GP.db.routes[1].points
+GP.db.routes[1].merge, GP.db.merge = 20, 20   -- from before 1.3.0
+GP:LoadSettings()
+check(GP.db.routes[1].merge == nil and GP.db.merge == nil, "the old merge setting is gone")
+check(#GP.db.routes[1].points == points, "and the route's loop is left as it was")
 
 STEP("without GatherMate2")
 GatherMate2 = nil

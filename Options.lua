@@ -155,7 +155,7 @@ local function BuildRoutes(p)
             GP:EditRouteInWindow(r.route)
         end)
         T.Disabler(r.edit, { r.edit })
-        T.Tooltip(r.edit, "Edit", "Change this route's zone, nodes, name, combine distance and pass distance, "
+        T.Tooltip(r.edit, "Edit", "Change this route's zone, nodes, name and pass distance, "
             .. "then find its loop again.")
         r.rebuild = FlatButton(r, "Rebuild", 76, 20)
         r.rebuild:SetPoint("LEFT", r.edit, "RIGHT", 6, 0)
@@ -211,10 +211,7 @@ local function BuildRoutes(p)
                 end
                 table.sort(kinds)
                 -- two short lines, so nothing is cut off
-                local extra = {}
-                if (route.merge or 0) > 0 then extra[#extra + 1] = "combines nodes within " .. route.merge .. " yards" end
-                if (route.sight or 0) > 0 then extra[#extra + 1] = "passes within " .. route.sight .. " yards" end
-                local line2 = #extra > 0 and ("\n" .. table.concat(extra, "  -  "):gsub("^%l", string.upper)) or ""
+                local line2 = (route.sight or 0) > 0 and ("\nPasses within " .. route.sight .. " yards") or ""
                 r.info:SetText(("%d nodes  -  %s round  -  %s%s"):format(GP:RouteNodes(route),
                     GP.FormatYards(route.length or GP:RouteLength(route)), table.concat(kinds, ", "), line2))
             end
@@ -238,19 +235,18 @@ end
 ---------------------------------------------------------------------------
 -- What's picked. Opening the tab starts it blank (ResetNew); Edit fills it
 -- from a route (EditInWindow) and Save changes that route.
-local newZone, picked, newMerge, newSight, editing = nil, {}, nil, nil, nil
+local newZone, picked, newSight, editing = nil, {}, nil, nil
 local nameBox
 
-local function Merge() return newMerge or GP.DEFAULTS.merge end
 local function Sight() return newSight or GP.DEFAULTS.sight end
 
 local function ResetNew()
-    newZone, picked, newMerge, newSight, editing = nil, {}, nil, nil, nil
+    newZone, picked, newSight, editing = nil, {}, nil, nil
     if nameBox then nameBox:SetText(""); nameBox:ClearFocus() end
 end
 
 local function EditInWindow(route)
-    newZone, newMerge, newSight, editing = route.mapID, route.merge or 0, route.sight or 0, route
+    newZone, newSight, editing = route.mapID, route.sight or 0, route
     picked = {}
     for kind, names in pairs(route.kinds) do
         for n in pairs(names) do
@@ -298,7 +294,7 @@ local function BuildNew(p, page)
     local heads, switches = {}, {}
     refs.kindSwitches = switches
 
-    -- below the list: name, combine, passes within, make (or save and cancel)
+    -- below the list: name, passes within, make (or save and cancel)
     local y = -34 - LIST_H - 14
     T.RowLabel(p, "Name", 0, y)
     local name = T.EditBox(p, 300)
@@ -311,22 +307,13 @@ local function BuildNew(p, page)
     name:SetScript("OnTextChanged", function(self) hint:SetShown(self:GetText() == "" and not self:HasFocus()) end)
     refs.newName = name
 
-    local merge = T.Slider(p, "Combine nodes within", 0, y - 36, 300, Merge,
-        function(v) newMerge = v end,
-        GP.RANGES.merge[1], GP.RANGES.merge[2], " yards", 5, nil, "Off")
-    T.Tooltip(merge, "Combine nodes within",
-        "Nodes this close together count as one stop, in the middle of them: you gather them from one spot "
-        .. "and the route has fewer turns. Off keeps every node.")
-    AddRefresher(merge.Refresh)
-    refs.mergeSlider = merge
-
-    local sight = T.Slider(p, "Route passes within", 0, y - 82, 300, Sight,
+    local sight = T.Slider(p, "Route passes within", 0, y - 36, 300, Sight,
         function(v) newSight = v end,
         GP.RANGES.sight[1], GP.RANGES.sight[2], " yards", 10, nil, "Off")
     T.Tooltip(sight, "Route passes within",
         "With Find Herbs or Find Minerals on, you see a node on the minimap before you reach it. "
-        .. "The route only has to come this close to each node, so it cuts corners and is shorter. "
-        .. "Off takes you right up to every node.")
+        .. "The route only has to come this close to each node, so it cuts corners and is shorter, "
+        .. "and nodes close together become one stop. Off takes you right up to every node.")
     AddRefresher(sight.Refresh)
     refs.sightSlider = sight
 
@@ -344,7 +331,7 @@ local function BuildNew(p, page)
                 end
             end
         end
-        local opts = { mapID = newZone, kinds = kinds, name = name:GetText(), merge = Merge(), sight = Sight() }
+        local opts = { mapID = newZone, kinds = kinds, name = name:GetText(), sight = Sight() }
         local route
         if editing then
             route = GP:EditRoute(editing, opts) and editing

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+
+- **Combine nodes within** is gone: **Route passes within** now does its job. Nodes close together become one stop on their own, and the route still comes within your distance of every node.
+- Routes with **Route passes within** on are much shorter: about a third shorter at the default 100 yards, whether nodes grow in patches or are spread out. They are also worked out several times faster.
+- Routes you already made keep their line until you **Rebuild** or **Edit** them. Do that to get the shorter route.
+
 ## 1.2.1
 
 - Fixed: with a route already made, the window stopped filling in. On **New route** the **Zone** list was empty and the two sliders showed no values; on **Routes** the **Rebuild** button didn't grey out. Everything works again with routes in the list.

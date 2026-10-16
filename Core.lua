@@ -30,15 +30,13 @@ GP.DEFAULTS = {
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
     minimapAngle = 200,
-    merge = 0,             -- where New route's "merge nodes closer than" starts (yards)
-    sight = 100,           -- where New route's "pass within" starts (yards, 0 = go to every node)
+    sight = 100,           -- where New route's "route passes within" starts (yards, 0 = go to every node)
     nextColor = 1,
 }
 GP.RANGES = {
     worldWidth = { 1, 10 },
     minimapWidth = { 1, 8 },
     alpha = { 20, 100 },
-    merge = { 0, 60 },
     sight = { 0, 150 },
 }
 
@@ -69,6 +67,7 @@ function GP:LoadSettings()
     -- 1.1.0 started "pass within" at 50 yards; 1.1.1 starts it at 100
     if db.sight == 50 and not db.sight100 then db.sight = nil end
     db.sight100 = true
+    db.merge = nil   -- New route's "merge nodes closer than" until 1.3.0
     for k, v in pairs(self.DEFAULTS) do
         if db[k] == nil then db[k] = v end
     end
@@ -89,6 +88,7 @@ function GP:LoadSettings()
             r.color = type(r.color) == "table" and r.color or { 1, 0.82, 0 }
             if r.shown == nil then r.shown = true end
             if not r.id then r.id = db.nextID; db.nextID = db.nextID + 1 end
+            r.merge = nil   -- gone in 1.3.0: "route passes within" groups nearby nodes itself
         end
     end
     self.db = db
@@ -291,7 +291,7 @@ function GP:RouteZones()
     return list
 end
 
--- Stops on the loop (fewer than nodes when nodes are merged or only passed near)
+-- Stops on the loop (fewer than nodes when the route only passes near them)
 function GP:NodeCount(route) return floor(#route.points / 2) end
 
 -- Nodes the route takes you past
@@ -321,8 +321,7 @@ local function Build(route)
     local w, h = Yards(route.mapID)
     local pts = {}
     for i, p in ipairs(raw) do pts[i] = { p[1] * w, p[2] * h } end
-    local merged = O.Merge(pts, route.merge or 0)
-    local stops = O.Shortcut(merged, route.sight or 0)
+    local stops = O.Shortcut(pts, route.sight or 0)
     local flat = {}
     for _, p in ipairs(stops) do
         flat[#flat + 1] = Round(p[1] / w)
@@ -398,7 +397,7 @@ local function NameTakenMessage(name, mapID)
         .. "or Rebuild that one."):format(name, GP:MapName(mapID))
 end
 
--- opts: mapID, kinds = { [kind] = { [name] = true } }, name, merge, sight
+-- opts: mapID, kinds = { [kind] = { [name] = true } }, name, sight
 function GP:NewRoute(opts)
     if not self:HasGatherMate() then
         Print("needs GatherMate2, where the nodes come from.")
@@ -425,7 +424,6 @@ function GP:NewRoute(opts)
         mapID = opts.mapID,
         name = name,
         kinds = opts.kinds,
-        merge = opts.merge or 0,
         sight = opts.sight or 0,
         color = { unpack(self.COLORS[(self.db.nextColor - 1) % #self.COLORS + 1]) },
         shown = true,
@@ -501,10 +499,10 @@ function GP:EditRoute(route, opts)
         Print(NameTakenMessage(name, mapID))
         return false
     end
-    local old = { mapID = route.mapID, name = route.name, kinds = route.kinds, merge = route.merge,
+    local old = { mapID = route.mapID, name = route.name, kinds = route.kinds,
         sight = route.sight, points = route.points, nodes = route.nodes, length = route.length }
     route.mapID, route.name, route.kinds = mapID, name, opts.kinds
-    route.merge, route.sight = opts.merge or 0, opts.sight or 0
+    route.sight = opts.sight or 0
     route.working = true
     self:RunJob(function() return Build(route) end, function(read)
         route.working = nil
@@ -553,8 +551,8 @@ function GP:SetRouteColor(route, r, g, b)
 end
 
 -- A node GatherMate2 just found goes into each route of its kind on that map,
--- where it adds the least walking. One already there (within the route's merge
--- distance of a stop, or its "pass within" distance of the line) is left alone.
+-- where it adds the least walking. One already there (within 5 yards of a stop,
+-- or its "route passes within" distance of the line) is left alone.
 function GP:AddNode(mapID, kind, x, y, name)
     if not self.db.autoAdd then return 0 end
     local w, h = Yards(mapID)
@@ -562,7 +560,7 @@ function GP:AddNode(mapID, kind, x, y, name)
     for _, route in ipairs(self:RoutesOn(mapID)) do
         if not route.working and route.kinds[kind] and route.kinds[kind][name] then
             local p, n = route.points, self:NodeCount(route)
-            local near, sight = max(route.merge or 0, 5), route.sight or 0
+            local near, sight = 5, route.sight or 0
             local c = { x * w, y * h }
             local pts, tour, close = {}, {}, false
             for i = 1, n do
@@ -591,13 +589,13 @@ function GP:AddNode(mapID, kind, x, y, name)
     return added
 end
 
--- A node deleted in GatherMate2 leaves the routes that have it (not merged ones,
--- nor ones that only pass near their nodes)
+-- A node deleted in GatherMate2 leaves the routes that have it (not ones that
+-- only pass near their nodes)
 function GP:RemoveNode(mapID, kind, x, y, name)
     local w, h = Yards(mapID)
     local removed = 0
     for _, route in ipairs(self:RoutesOn(mapID)) do
-        if not route.working and route.kinds[kind] and route.kinds[kind][name] and (route.merge or 0) == 0
+        if not route.working and route.kinds[kind] and route.kinds[kind][name]
             and (route.sight or 0) == 0 then
             local p = route.points
             for i = 1, self:NodeCount(route) do
