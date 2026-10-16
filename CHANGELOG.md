@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.0
+
+- **Routes are worked out faster**, so you wait much less on "Working out the shortest loop...": up to six times faster on big routes (hundreds of nodes), about twice as fast with **Route passes within** on. The game still keeps running smoothly meanwhile. Routes also come out a little shorter, usually 2 to 5%.
+- New **Range circle** on the **Display** tab: a ring round you on the minimap, 100 yards to start, the furthest Find Herbs and Find Minerals show nodes. Switch it on, then pick its **color**, **opacity** and **radius** (20 to 200 yards). It's off to start, and it stays even when you hide the route lines.
+- Routes you already made keep their line until you **Rebuild** or **Edit** them.
+
 ## 1.6.0
 
 - **Select all** beside each kind of node on **New route** (Herbs, Ore, Treasure and so on) switches on every node of that kind. Click it again (it then reads **Clear all**) to switch them all off.

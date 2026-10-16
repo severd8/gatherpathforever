@@ -32,6 +32,10 @@ GP.DEFAULTS = {
     minimapRouteColor = true,  -- minimap lines too
     worldColor = { 1, 0.82, 0 },   -- the world map's one color when worldRouteColor is off
     minimapColor = { 1, 0.82, 0 }, -- and the minimap's
+    range = false,         -- a circle round you on the minimap: how far Find Herbs/Find Minerals show nodes
+    rangeYards = 100,      -- its radius
+    rangeAlpha = 60,       -- its opacity (percent)
+    rangeColor = { 0.25, 0.80, 1.00 },  -- its color
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
     minimapAngle = 200,
@@ -43,6 +47,8 @@ GP.RANGES = {
     minimapWidth = { 1, 8 },
     worldAlpha = { 10, 100 },
     minimapAlpha = { 10, 100 },
+    rangeYards = { 20, 200 },
+    rangeAlpha = { 10, 100 },
     sight = { 0, 150 },
 }
 
@@ -864,6 +870,7 @@ function GP:SetupMinimap()
     f:SetAllPoints(Minimap)
     f:SetFrameLevel(Minimap:GetFrameLevel() + 1)
     f.pool = LinePool(f, "ARTWORK")
+    f.ring = LinePool(f, "ARTWORK")
     f.wait = 0
     f:SetScript("OnUpdate", function(frame, elapsed)
         frame.wait = frame.wait - elapsed
@@ -874,18 +881,52 @@ function GP:SetupMinimap()
     self.mm = f
 end
 
+-- The range circle: db.rangeYards round you (the middle of the minimap), so
+-- you can see how far Find Herbs and Find Minerals show nodes. It doesn't
+-- turn or move, so it's only redrawn when the zoom or a setting changes.
+local RING_SIDES = 64
+function GP:DrawRange(force, radius, half)
+    local f, db = self.mm, self.db
+    local pool = f.ring
+    if not (db and db.range and radius and radius > 0 and half > 0) then
+        if f.ringKey then pool:Begin(); pool:Done(); f.ringKey = nil end
+        return
+    end
+    local rc = db.rangeColor
+    local key = ("%.1f:%.1f:%d:%d:%.3f:%.3f:%.3f:%s"):format(radius, half, db.rangeYards, db.rangeAlpha,
+        rc[1], rc[2], rc[3], tostring(MinimapIsRound()))
+    if not force and key == f.ringKey then return end
+    f.ringKey = key
+    local r = db.rangeYards * half / radius
+    local clip = MinimapIsRound() and ClipCircle or ClipSquare
+    local alpha = db.rangeAlpha / 100
+    pool:Begin()
+    for i = 1, RING_SIDES do
+        local a1, a2 = (i - 1) / RING_SIDES * 2 * math.pi, i / RING_SIDES * 2 * math.pi
+        local ax, ay, bx, by = clip(r * cos(a1), r * sin(a1), r * cos(a2), r * sin(a2), half - 1)
+        if ax then
+            local line = pool:Get()
+            Paint(line, rc, alpha, 2)
+            line:SetStartPoint("CENTER", f, ax, ay)
+            line:SetEndPoint("CENTER", f, bx, by)
+        end
+    end
+    pool:Done()
+end
+
 -- Redraws the minimap's lines if you've moved, turned or zoomed (or force)
 function GP:DrawMinimap(force)
     local f = self.mm
     if not f then return end
     local pool = f.pool
     local db = self.db
+    local radius = C_Minimap and C_Minimap.GetViewRadius and C_Minimap.GetViewRadius()
+    local half = Minimap:GetWidth() / 2
+    self:DrawRange(force, radius, half)
     if not (db and db.minimap) then
         if f.drew then pool:Begin(); pool:Done(); f.drew = false; f.last = nil end
         return
     end
-    local radius = C_Minimap and C_Minimap.GetViewRadius and C_Minimap.GetViewRadius()
-    local half = Minimap:GetWidth() / 2
     if not radius or radius <= 0 or half <= 0 then return end
     local rotate = GetCVar and GetCVar("rotateMinimap") == "1"
     local facing = rotate and GetPlayerFacing and GetPlayerFacing() or 0

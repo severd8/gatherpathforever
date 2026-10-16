@@ -17,6 +17,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **As many routes as you like**, several per zone, each with its own color. Show or hide each one, rename it, edit it, or delete it.
 - **Routes that grow.** When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, where it adds the least walking. **Rebuild** reads every node again and finds the loop again.
 - **Route passes within** a distance of each node instead of right up to it (100 yards to start): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter, and nodes close together become one stop.
+- **Range circle** on the minimap (off to start): a ring round you, 100 yards to start, as far as Find Herbs and Find Minerals show nodes. Pick its color, opacity and size.
 - **Your look**: line width, opacity and color, set apart for the world map and the minimap. Lines use each route's own color, or one color you pick for every route.
 - The same look as TauntMaster Forever, ToppedOff Forever, Outfitter Forever and BattleText Forever.
 
@@ -41,7 +42,7 @@ Install it with the CurseForge app, or download the file and unzip it into your 
 |---|---|
 | **Routes** | The routes in a zone: color, name (click to rename), Edit, Rebuild, Delete, nodes, length in yards, show |
 | **New route** | Zone, the nodes GatherMate2 knows there (with Select all for each kind), name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
-| **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; add new nodes to routes, minimap button |
+| **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button |
 
 ### Commands
 
@@ -54,7 +55,7 @@ Install it with the CurseForge app, or download the file and unzip it into your 
 ## Good to know
 
 - A route goes where your nodes are. The more of a zone you've gathered (or imported into GatherMate2), the better the route.
-- The loop is as short as GatherPath can find quickly. A big route (hundreds of nodes) takes a moment to work out; the game keeps running meanwhile.
+- The loop is as short as GatherPath can find quickly. A big route (hundreds of nodes) takes a few seconds to work out; the game keeps running meanwhile.
 - Lengths are in yards, round the whole loop.
 
 ## Feedback

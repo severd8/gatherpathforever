@@ -55,6 +55,53 @@ do
     check(#O.Solve({}) == 0 and #O.Solve({ { 1, 1 } }) == 1, "0 and 1 nodes")
 end
 do
+    -- every size from 2 up comes back whole
+    for n = 2, 30 do
+        local pts = {}
+        for i = 1, n do pts[i] = { math.random() * 500, math.random() * 500 } end
+        check(isTour(O.Solve(pts), n), n .. " nodes come back whole")
+    end
+    -- quick: on 600 nodes the old solver handed the frame back 1816 times
+    local pts = {}
+    for i = 1, 600 do pts[i] = { math.random() * 2000, math.random() * 1500 } end
+    local pauses = 0
+    O.Pause = function() pauses = pauses + 1 end
+    local tour = O.Solve(pts)
+    O.Pause = function() end
+    check(isTour(tour, 600), "600 nodes")
+    check(pauses < 700, "600 nodes take well under half the work they used to (" .. pauses .. ")")
+    -- and no longer than untangling every crossing the slow way
+    pts = {}
+    for i = 1, 250 do pts[i] = { math.random() * 2000, math.random() * 1500 } end
+    tour = O.Solve(pts)
+    local plain = {}
+    for i = 1, #pts do plain[i] = i end
+    local better = true
+    while better do
+        better = false
+        for i = 1, #plain - 2 do
+            for j = i + 2, #plain do
+                if not (i == 1 and j == #plain) then
+                    local a, b = pts[plain[i]], pts[plain[i + 1]]
+                    local c, d = pts[plain[j]], pts[plain[j % #plain + 1]]
+                    if O.Dist(a, c) + O.Dist(b, d) < O.Dist(a, b) + O.Dist(c, d) - 1e-6 then
+                        local x, y = i + 1, j
+                        while x < y do plain[x], plain[y] = plain[y], plain[x]; x, y = x + 1, y - 1 end
+                        better = true
+                    end
+                end
+            end
+        end
+    end
+    -- (0.891 now; 0.906 without the shakes, 0.910 keeping shakes that didn't help)
+    check(O.Length(pts, tour) < O.Length(pts, plain) * 0.90, "a tenth shorter than untangling every crossing")
+    -- the same nodes give the same route every time
+    local again = O.Solve(pts)
+    local same = true
+    for i = 1, #pts do same = same and again[i] == tour[i] end
+    check(same, "the same route every time")
+end
+do
     local g = O.Group({ { 0, 0 }, { 10, 0 }, { 20, 0 }, { 200, 0 } }, 12)
     check(#g == 3, "nodes within 12 yards of the first group together (not a whole chain)")
     check(near(g[1][1], 5) and g[1].count == 2 and near(g[1].reach, 5), "in the middle of them")
@@ -575,6 +622,40 @@ check(GP.db.minimap == false)
 Click(ui.minimapSwitch)
 check(GP.db.minimap == true)
 
+STEP("range circle on the minimap")
+check(GP.db.range == false and #Shown(GP.mm.ring) == 0, "off to start")
+check(GP.db.rangeYards == 100 and ui.rangeYards and ui.rangeAlpha, "100 yards, with sliders")
+Click(ui.rangeSwitch)
+check(GP.db.range == true)
+local ring = Shown(GP.mm.ring)
+check(#ring == 64, "a full circle: the minimap shows 150 yards, so 100 fits")
+local r = 100 * 70 / 150
+for _, l in ipairs(ring) do
+    check(near(math.sqrt(l.__from[1] ^ 2 + l.__from[2] ^ 2), r, 0.01), "100 yards from you")
+end
+local rc = GP.db.rangeColor
+check(ring[1].__color[1] == rc[1] and near(ring[1].__color[4], 0.6), "in its color and opacity")
+check(ui.rangeColor.fill.__color[1] == rc[1], "the square shows the color")
+GP.db.rangeColor, GP.db.rangeAlpha = { 1, 0, 0.5 }, 30
+GP:Changed()
+ring = Shown(GP.mm.ring)
+check(ring[1].__color[1] == 1 and ring[1].__color[3] == 0.5 and near(ring[1].__color[4], 0.3), "a new color and opacity")
+check(ui.rangeColor.fill.__color[3] == 0.5)
+Click(ui.minimapSwitch)
+check(#Shown(GP.mm.pool) == 0 and #Shown(GP.mm.ring) == 64, "stays with the route lines off")
+Click(ui.minimapSwitch)
+GP.db.rangeYards = 200
+GP:Changed()
+check(#Shown(GP.mm.ring) == 0, "beyond the minimap's edge: nothing drawn")
+VIEW_RADIUS = 300
+GP:DrawMinimap()
+check(#Shown(GP.mm.ring) == 64, "zoomed out it's back without forcing a redraw")
+VIEW_RADIUS = 150
+GP.db.rangeYards = 100
+Click(ui.rangeSwitch)
+check(#Shown(GP.mm.ring) == 0, "and off again")
+GP.db.rangeColor, GP.db.rangeAlpha = { 0.25, 0.80, 1.00 }, 60
+
 STEP("line color and opacity, each map on its own")
 WorldMapFrame:SetMapID(E)
 PLAYER.x, PLAYER.y = 0.5, 0.5
@@ -618,6 +699,9 @@ saved.worldWidth = 99
 GP:LoadSettings()
 check(#GP.db.routes == 1 and GP.db.routes[1].name == "Elwynn herbs", "the real route stays")
 check(GP.db.worldWidth == 10, "out-of-range settings are kept in range")
+saved.rangeYards, saved.rangeColor = 999, "junk"
+GP:LoadSettings()
+check(GP.db.rangeYards == 200 and GP.db.rangeColor[2] == 0.80, "the range circle's settings too")
 saved.sight, saved.sight100 = 50, nil
 GP:LoadSettings()
 check(GP.db.sight == 100, "1.1.0's 50 yards becomes the new 100")

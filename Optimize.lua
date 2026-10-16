@@ -106,109 +106,262 @@ local function Nearest(points)
     return tour
 end
 
-local function Reverse(tour, i, j)
-    while i < j do
-        tour[i], tour[j] = tour[j], tour[i]
-        i, j = i + 1, j - 1
-    end
-end
-
--- Untangle: wherever two legs cross (a-b ... c-d), reconnect them as a-c and
--- b-d by turning the stretch between round. True if anything got shorter.
-local function TwoOpt(points, tour)
-    local n = #tour
-    local better = false
-    for i = 1, n - 2 do
-        local a, b = points[tour[i]], points[tour[i + 1]]
-        local ab = Dist(a, b)
-        for j = i + 2, n do
-            if not (i == 1 and j == n) then
-                local c, d = points[tour[j]], points[tour[j % n + 1]]
-                local delta = Dist(a, c) + Dist(b, d) - ab - Dist(c, d)
-                if delta < -EPS then
-                    Reverse(tour, i + 1, j)
-                    better = true
-                    b = points[tour[i + 1]]
-                    ab = Dist(a, b)
+-- The k closest points to each point of the tour, nearest first. 2-opt and
+-- Or-opt only try joining a point to these: the moves that shorten a loop
+-- almost always join near neighbours, and it makes each pass about n * k
+-- instead of n * n.
+local NEAR = 10
+local function Neighbours(points, tour, k)
+    local near = {}
+    for _, a in ipairs(tour) do
+        local list, dist = {}, {}
+        local pa = points[a]
+        for _, b in ipairs(tour) do
+            if b ~= a then
+                local d = Dist(pa, points[b])
+                local m = #list
+                if m < k or d < dist[m] then
+                    if m == k then list[m], dist[m] = nil, nil; m = m - 1 end
+                    local at = m + 1
+                    while at > 1 and dist[at - 1] > d do
+                        list[at], dist[at] = list[at - 1], dist[at - 1]
+                        at = at - 1
+                    end
+                    list[at], dist[at] = b, d
                 end
             end
         end
-        Step(n)
+        Step(#tour)
+        near[a] = list
     end
-    return better
+    return near
 end
 
--- Move a run of 1 to 3 nodes to the place in the loop where it costs least
--- (either way round). True if anything got shorter.
-local function OrOpt(points, tour)
-    local better = false
+-- Every change to the tour goes through Put, which keeps pos (point ->
+-- position) up to date and, while `undo` is a table, notes what was there
+-- so a shake that didn't help can be taken back
+local undo
+local function Put(tour, pos, i, v)
+    if undo then
+        undo[#undo + 1] = i
+        undo[#undo + 1] = tour[i]
+    end
+    tour[i] = v
+    pos[v] = i
+end
+
+-- Turn round the stretch of the loop from position s, len places long
+-- (going round past the end)
+local function Reverse(tour, pos, s, len)
+    local n = #tour
+    for k = 0, math.floor(len / 2) - 1 do
+        local i, j = (s + k - 1) % n + 1, (s + len - 2 - k) % n + 1
+        local ti, tj = tour[i], tour[j]
+        Put(tour, pos, i, tj)
+        Put(tour, pos, j, ti)
+    end
+end
+
+-- The legs at positions p (tour[p] -> next) and q become tour[p] -> tour[q]
+-- and next(p) -> next(q): turn round whichever side of the loop is shorter
+local function Swap(tour, pos, p, q)
+    local n = #tour
+    local len = (q - p) % n            -- from p + 1 to q
+    if len <= n - len then
+        Reverse(tour, pos, p % n + 1, len)
+    else
+        Reverse(tour, pos, q % n + 1, n - len)
+    end
+end
+
+-- Tries the moves that start at point a. Returns the points whose legs
+-- changed (to look at again) and the yards saved, or nil if nothing got
+-- shorter.
+--   2-opt: where a leg from a and another leg cross (a-b ... c-d), reconnect
+--   them as a-c and b-d by turning the stretch between round.
+--   Or-opt: move the run of 1 to 3 nodes starting or ending at a to the place
+--   next to a near neighbour of either end where it costs least (either way
+--   round).
+local function TryPoint(points, tour, pos, near, a)
+    local n = #tour
+    local A = points[a]
+    local i = pos[a]
+    for side = 1, 2 do
+        local p = side == 1 and i or (i - 2) % n + 1
+        local x1, x2 = tour[p], tour[p % n + 1]
+        local other = side == 1 and x2 or x1
+        local leg = Dist(A, points[other])
+        for _, c in ipairs(near[a]) do
+            local C = points[c]
+            local ac = Dist(A, C)
+            if ac >= leg - EPS then break end
+            local q = pos[c]
+            local y = side == 1 and tour[q % n + 1] or tour[(q - 2) % n + 1]
+            if c ~= other and y ~= a then
+                local Y = points[y]
+                local delta = ac + Dist(points[other], Y) - leg - Dist(C, Y)
+                if delta < -EPS then
+                    if side == 1 then
+                        Swap(tour, pos, p, q)                  -- a-c, x2-y
+                    else
+                        Swap(tour, pos, pos[y], p)             -- y-x1, c-a
+                    end
+                    return { a, other, c, y }, -delta
+                end
+            end
+        end
+    end
+    if n < 6 then return nil end
     for len = 1, 3 do
-        local i = 1
-        while i <= #tour do
-            local n = #tour
-            if n < len + 3 then return better end
-            local first, last = i, i + len - 1
-            if last > n then break end
-            local prev = tour[first == 1 and n or first - 1]
-            local nxt = tour[last == n and 1 or last + 1]
-            local s1, sL = tour[first], tour[last]
+        for back = 0, len - 1, math.max(1, len - 1) do
+            local first = (i - back - 1) % n + 1
+            local function At(k) return tour[(first + k - 2) % n + 1] end   -- k-th of the run
+            local inRun = {}
+            for k = 1, len do inRun[At(k)] = true end
+            local s1, sL = At(1), At(len)
+            local prev, nxt = tour[(first - 2) % n + 1], At(len + 1)
             local P, S1, SL, N = points[prev], points[s1], points[sL], points[nxt]
             local gain = Dist(P, S1) + Dist(SL, N) - Dist(P, N)
-            local bestCost, bestAt, bestFlip = gain - EPS, nil, false
-            for k = 1, n do
-                local kn = k % n + 1
-                -- the leg tour[k] -> tour[kn], outside the run and not the gap it leaves
-                local inside = (k >= first and k <= last) or (kn >= first and kn <= last)
-                if not inside and tour[k] ~= prev then
-                    local U, V = points[tour[k]], points[tour[kn]]
-                    local uv = Dist(U, V)
-                    local c1 = Dist(U, S1) + Dist(SL, V) - uv
-                    local c2 = Dist(U, SL) + Dist(S1, V) - uv
-                    if c1 < bestCost then bestCost, bestAt, bestFlip = c1, k, false end
-                    if c2 < bestCost then bestCost, bestAt, bestFlip = c2, k, true end
+            if gain > EPS then
+                local bestCost, bestU, bestFlip = gain - EPS, nil, false
+                for e = 1, 2 do
+                    local S = e == 1 and S1 or SL
+                    for _, c in ipairs(near[e == 1 and s1 or sL]) do
+                        if Dist(S, points[c]) >= gain then break end
+                        if not inRun[c] then
+                            local k = pos[c]
+                            -- the legs c -> next and before -> c, if outside the run
+                            for w = 1, 2 do
+                                local u = tour[w == 1 and k or (k - 2) % n + 1]
+                                local v = tour[pos[u] % n + 1]
+                                if not inRun[u] and not inRun[v] then
+                                    local U, V = points[u], points[v]
+                                    local uv = Dist(U, V)
+                                    local c1 = Dist(U, S1) + Dist(SL, V) - uv
+                                    local c2 = Dist(U, SL) + Dist(S1, V) - uv
+                                    if c1 < bestCost then bestCost, bestU, bestFlip = c1, u, false end
+                                    if c2 < bestCost then bestCost, bestU, bestFlip = c2, u, true end
+                                end
+                            end
+                        end
+                    end
                 end
-            end
-            Step(n)
-            if bestAt then
-                local run = {}
-                for k = first, last do run[#run + 1] = tour[k] end
-                if bestFlip then
-                    for a = 1, math.floor(#run / 2) do run[a], run[#run - a + 1] = run[#run - a + 1], run[a] end
+                if bestU then
+                    local run = {}
+                    for k = 1, len do run[k] = At(bestFlip and len - k + 1 or k) end
+                    local out = {}
+                    for k = 1, n do
+                        local t = tour[k]
+                        if not inRun[t] then
+                            out[#out + 1] = t
+                            if t == bestU then
+                                for r = 1, len do out[#out + 1] = run[r] end
+                            end
+                        end
+                    end
+                    local v = tour[pos[bestU] % n + 1]
+                    for k = 1, n do
+                        if tour[k] ~= out[k] then Put(tour, pos, k, out[k]) end
+                    end
+                    return { prev, nxt, s1, sL, bestU, v }, gain - bestCost
                 end
-                local after = tour[bestAt]   -- the node the run goes in after
-                for _ = first, last do table.remove(tour, first) end
-                local at
-                for k = 1, #tour do if tour[k] == after then at = k break end end
-                for a = #run, 1, -1 do table.insert(tour, at + 1, run[a]) end
-                better = true
-            else
-                i = i + 1
             end
         end
     end
-    return better
+    return nil
 end
 
--- 2-opt and Or-opt until neither finds anything shorter
-local function Improve(points, tour, maxRounds)
-    if #tour <= 3 then return tour end
-    for _ = 1, maxRounds or 60 do
-        local a = TwoOpt(points, tour)
-        local b = OrOpt(points, tour)
-        if not (a or b) then break end
+-- Keep trying the points in `start` (and the ends of every leg that changes)
+-- until no move makes the loop shorter. Returns the yards saved.
+local function Settle(points, tour, pos, near, start)
+    local queue, queued = {}, {}
+    local head, tail = 1, 0
+    local function Add(t)
+        if not queued[t] then
+            queued[t] = true
+            tail = tail + 1
+            queue[tail] = t
+        end
+    end
+    for _, t in ipairs(start) do Add(t) end
+    local saved = 0
+    while head <= tail do
+        local a = queue[head]
+        queue[head] = nil
+        head = head + 1
+        queued[a] = nil
+        local touched, gain = TryPoint(points, tour, pos, near, a)
+        Step(NEAR * 4)
+        if touched then
+            saved = saved + gain
+            for _, t in ipairs(touched) do Add(t) end
+        end
+    end
+    return saved
+end
+
+-- 2-opt and Or-opt until neither finds anything shorter. Then shake it up
+-- many times (two short stretches next to each other change places, then it
+-- settles again) and keep each shake that comes out shorter: this gets out of
+-- loops that no single move can shorten.
+local SHAKES = 2       -- per point
+local function Improve(points, tour)
+    local n = #tour
+    if n <= 3 then return tour end
+    local near = Neighbours(points, tour, math.min(NEAR, n - 1))
+    local pos = {}
+    for i, k in ipairs(tour) do pos[k] = i end
+    Settle(points, tour, pos, near, tour)
+    if n < 8 then return tour end
+    local seed = 12345
+    local function Random(m)               -- the same every time, 1 to m
+        seed = (seed * 16807) % 2147483647
+        return seed % m + 1
+    end
+    local function At(k) return tour[(k - 1) % n + 1] end
+    local maxRun = math.max(1, math.min(30, math.floor(n / 4)))
+    for _ = 1, SHAKES * n do
+        local l1, l2 = Random(maxRun), Random(maxRun)
+        local p = Random(n)
+        -- the l1 after tour[p] and the l2 after those change places:
+        -- p, A1..Al1, B1..Bl2, q  becomes  p, B1..Bl2, A1..Al1, q
+        local P, A1, Al = points[At(p)], points[At(p + 1)], points[At(p + l1)]
+        local B1, Bl, Q = points[At(p + l1 + 1)], points[At(p + l1 + l2)], points[At(p + l1 + l2 + 1)]
+        local added = Dist(P, B1) + Dist(Bl, A1) + Dist(Al, Q)
+            - Dist(P, A1) - Dist(Al, B1) - Dist(Bl, Q)
+        undo = {}
+        local run = {}
+        for k = 1, l1 + l2 do run[k] = At(p + k) end
+        for k = 1, l1 + l2 do
+            Put(tour, pos, (p + k - 1) % n + 1, k <= l2 and run[l1 + k] or run[k - l2])
+        end
+        local ends = {}
+        for _, k in ipairs({ p, p + 1, p + l2, p + l2 + 1, p + l1 + l2, p + l1 + l2 + 1 }) do
+            ends[#ends + 1] = At(k)
+        end
+        local gain = Settle(points, tour, pos, near, ends)
+        if gain - added <= EPS then
+            -- no shorter: take it all back, last change first
+            for k = #undo - 1, 1, -2 do
+                tour[undo[k]] = undo[k + 1]
+                pos[undo[k + 1]] = undo[k]
+            end
+        end
+        undo = nil
+        Step(l1 + l2)
     end
     return tour
 end
 
 -- The shortest loop it can find through the points. Returns the tour.
-function O.Solve(points, maxRounds)
+function O.Solve(points)
     local n = #points
     local tour = {}
     if n <= 3 then
         for i = 1, n do tour[i] = i end
         return tour
     end
-    return Improve(points, Nearest(points), maxRounds)
+    return Improve(points, Nearest(points))
 end
 
 -- The point of the segment a-b closest to c
@@ -270,12 +423,12 @@ end
 -- stops that end up on a straight line. Grouping first makes routes about a
 -- quarter shorter on clustered nodes, and the work several times quicker.
 -- Returns the stops in loop order, { x, y }.
-function O.Shortcut(nodes, radius, maxRounds)
+function O.Shortcut(nodes, radius)
     if radius and radius > 0 then
         local groups = O.Group(nodes, radius / 2)
         nodes = (#groups >= 2 or #nodes < 2) and groups or O.Group(nodes, 0)   -- a loop needs 2 stops
     end
-    local tour = O.Solve(nodes, maxRounds)
+    local tour = O.Solve(nodes)
     local stops = {}
     for i, k in ipairs(tour) do stops[i] = { nodes[k][1], nodes[k][2], node = nodes[k] } end
     if not radius or radius <= 0 or #stops < 3 then return stops end
@@ -302,7 +455,7 @@ function O.Shortcut(nodes, radius, maxRounds)
         stops = again
         for i = 1, n do order[i] = i end
         local before = O.Length(stops, order)
-        Improve(stops, order, maxRounds)
+        Improve(stops, order)
         local reordered = {}
         for i = 1, n do reordered[i] = stops[order[i]] end
         stops = reordered

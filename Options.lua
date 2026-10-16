@@ -564,7 +564,7 @@ local function LineColor(parent, x, y, where, place)
 end
 
 local function BuildDisplay(p)
-    local card = Card(p, "Lines", 0, 0, PAGE_W, 222)
+    local card = Card(p, "Lines", 0, 0, PAGE_W, 214)
     refs.worldSwitch = Setting(card, "On the world map", 12, -30, "worldMap",
         "Draw the routes on the world map, on their zone's map (and thinner on the continent's).")
     refs.minimapSwitch = Setting(card, "On the minimap", COL2, -30, "minimap",
@@ -576,7 +576,24 @@ local function BuildDisplay(p)
     refs.worldRouteColor, refs.worldColor = LineColor(card, 12, -152, "world", "on the world map")
     refs.minimapRouteColor, refs.minimapColor = LineColor(card, COL2, -152, "minimap", "on the minimap")
 
-    local card2 = Card(p, "More", 0, -234, PAGE_W, 86)
+    local card3 = Card(p, "Range circle", 0, -224, PAGE_W, 98)
+    refs.rangeSwitch = Setting(card3, "On the minimap", 12, -30, "range",
+        "A circle round you on the minimap, as far as Find Herbs and Find Minerals show nodes, so you can see "
+        .. "how close you need to get. Set the yards below.")
+    local swatch = Swatch(card3,
+        function() return GP.db.rangeColor end,
+        function(_, r, g, b) GP.db.rangeColor = { r, g, b }; GP:Changed() end,
+        "Circle color", "Click to pick the range circle's color.")
+    swatch:SetPoint("TOPLEFT", COL2, -30)
+    local label = Text(card3, "Circle color", "GameFontHighlight")
+    label:SetPoint("LEFT", swatch, "RIGHT", 8, 0)
+    AddRefresher(function() swatch:Paint(GP.db.rangeColor) end)
+    refs.rangeColor = swatch
+    refs.rangeYards = Slider(card3, "Circle radius", 12, -58, "rangeYards", " yards",
+        "How far round you the circle is drawn. Find Herbs and Find Minerals show nodes about 100 yards away.")
+    refs.rangeAlpha = Slider(card3, "Circle opacity", COL2, -58, "rangeAlpha", "%")
+
+    local card2 = Card(p, "More", 0, -332, PAGE_W, 78)
     Setting(card2, "Add new nodes to routes", 12, -30, "autoAdd",
         "When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, "
         .. "where it adds the least walking.")
@@ -584,7 +601,7 @@ local function BuildDisplay(p)
         "The GatherPath button on the minimap: left-click opens this window, right-click shows or hides the lines.",
         function() GP:UpdateMinimapButton() end)
     T.Note(card2, "Right-click the minimap button (or type /gpf hide, /gpf show) to hide every line for a while.",
-        12, -60, PAGE_W - 24)
+        12, -56, PAGE_W - 24)
 end
 
 ---------------------------------------------------------------------------
