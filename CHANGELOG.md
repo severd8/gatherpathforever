@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1
+
+- Fixed: with a route already made, the window stopped filling in. On **New route** the **Zone** list was empty and the two sliders showed no values; on **Routes** the **Rebuild** button didn't grey out. Everything works again with routes in the list.
+- The **Routes** tab is tidier: **Edit**, **Rebuild** and **Delete** sit in a row beside the name (they no longer overlap), and the route's details get two lines under it, so nothing is cut off.
+- Clearer names on **New route**: **Merge nodes closer than** is now **Combine nodes within**, and **Pass within** is now **Route passes within**. They work the same as before.
+
 ## 1.2.0
 
 - **New route** now opens blank every time: no zone, no nodes picked, no name, and **Merge** and **Pass within** at their defaults (off and 100 yards). Pick a zone from the list or click **My zone**.

@@ -13,10 +13,15 @@ REAL_PRINT = realPrint
 
 ALL_FRAMES = {}
 local Methods = {}
+-- Methods the addon adds to its own widgets: a real frame doesn't have them, so
+-- calling one that was never added is an error here too (as in the game)
+local ADDON_METHODS = { SetDisabled = true, SetOn = true, IsOn = true, SetHover = true, Paint = true,
+    Refresh = true, Choose = true, SetContent = true }
 local MT = {
     __index = function(obj, k)
         if Methods[k] then return Methods[k] end
         if type(k) == "string" and k:sub(1, 2) == "__" then return nil end
+        if ADDON_METHODS[k] then return nil end
         return function() end   -- anything else does nothing
     end,
 }

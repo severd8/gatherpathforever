@@ -88,7 +88,8 @@ end
 ---------------------------------------------------------------------------
 -- Routes tab
 ---------------------------------------------------------------------------
-local ROW_H = 58
+local ROW_H = 74
+local INFO_W = PAGE_W - 16 - 84 - 40 - 10   -- from under the name to Show
 local routesZone   -- the map whose routes are listed
 
 local function RoutesZoneChoices()
@@ -136,9 +137,10 @@ local function BuildRoutes(p)
         r:SetSize(PAGE_W - 16, ROW_H - 6)
         T.Fill(r, C.card)
         T.Border(r, C.line)
+        -- top: color, name, Edit, Rebuild, Delete; below: what it is, Show
         r.swatch = Swatch(r)
         r.swatch:SetPoint("TOPLEFT", 10, -8)
-        r.name = T.EditBox(r, 250)
+        r.name = T.EditBox(r, 230)
         r.name:SetPoint("LEFT", r.swatch, "RIGHT", 8, 0)
         local function rename(self)
             if r.route and self:GetText() ~= r.route.name then GP:RenameRoute(r.route, self:GetText()) end
@@ -146,31 +148,35 @@ local function BuildRoutes(p)
         end
         r.name:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
         r.name:SetScript("OnEditFocusLost", rename)
-        r.edit = FlatButton(r, "Edit", 70, 20)
+        r.edit = FlatButton(r, "Edit", 60, 20)
         r.edit:SetPoint("LEFT", r.name, "RIGHT", 8, 0)
         r.edit:SetScript("OnClick", function(self)
             if self.disabled or not r.route then return end
             GP:EditRouteInWindow(r.route)
         end)
         T.Disabler(r.edit, { r.edit })
-        T.Tooltip(r.edit, "Edit", "Change this route's zone, nodes, name, merge and pass within, "
+        T.Tooltip(r.edit, "Edit", "Change this route's zone, nodes, name, combine distance and pass distance, "
             .. "then find its loop again.")
+        r.rebuild = FlatButton(r, "Rebuild", 76, 20)
+        r.rebuild:SetPoint("LEFT", r.edit, "RIGHT", 6, 0)
+        r.rebuild:SetScript("OnClick", function(self)
+            if self.disabled or not r.route then return end
+            GP:RebuildRoute(r.route)
+        end)
+        T.Disabler(r.rebuild, { r.rebuild })
+        T.Tooltip(r.rebuild, "Rebuild", "Reads this route's nodes from GatherMate2 again (it may know more by now) "
+            .. "and finds the shortest loop again.")
+        r.delete = FlatButton(r, "Delete", 70, 20)
+        r.delete:SetPoint("LEFT", r.rebuild, "RIGHT", 6, 0)
         r.info = Text(r, "", "GameFontDisableSmall")
-        r.info:SetPoint("TOPLEFT", 40, -34)
-        r.info:SetWidth(300)
-        r.info:SetWordWrap(false)
-        r.show = T.LabeledSwitch(r, "Show", PAGE_W - 16 - 90, -11)
+        r.info:SetPoint("TOPLEFT", 40, -38)
+        r.info:SetWidth(INFO_W)
+        r.info:SetWordWrap(true)
+        r.show = T.LabeledSwitch(r, "Show", PAGE_W - 16 - 84, -40)
         r.show:SetScript("OnClick", function(self)
             if r.route then GP:SetRouteShown(r.route, not self:IsOn()) end
         end)
         T.Tooltip(r.show, "Show", "Draw this route on the world map and the minimap.")
-        r.rebuild = FlatButton(r, "Rebuild", 80, 20)
-        r.rebuild:SetPoint("BOTTOMRIGHT", -94, 6)
-        r.rebuild:SetScript("OnClick", function() if r.route then GP:RebuildRoute(r.route) end end)
-        T.Tooltip(r.rebuild, "Rebuild", "Reads this route's nodes from GatherMate2 again (it may know more by now) "
-            .. "and finds the shortest loop again.")
-        r.delete = FlatButton(r, "Delete", 80, 20)
-        r.delete:SetPoint("BOTTOMRIGHT", -8, 6)
         r.delete:SetScript("OnClick", function()
             local route = r.route
             if not route then return end
@@ -204,10 +210,13 @@ local function BuildRoutes(p)
                     if next(names) then kinds[#kinds + 1] = GP:KindName(kind) end
                 end
                 table.sort(kinds)
-                r.info:SetText(("%d nodes  -  %s round  -  %s%s%s"):format(GP:RouteNodes(route),
-                    GP.FormatYards(route.length or GP:RouteLength(route)), table.concat(kinds, ", "),
-                    (route.merge or 0) > 0 and ("  -  nodes within " .. route.merge .. " yards merged") or "",
-                    (route.sight or 0) > 0 and ("  -  passes within " .. route.sight .. " yards") or ""))
+                -- two short lines, so nothing is cut off
+                local extra = {}
+                if (route.merge or 0) > 0 then extra[#extra + 1] = "combines nodes within " .. route.merge .. " yards" end
+                if (route.sight or 0) > 0 then extra[#extra + 1] = "passes within " .. route.sight .. " yards" end
+                local line2 = #extra > 0 and ("\n" .. table.concat(extra, "  -  "):gsub("^%l", string.upper)) or ""
+                r.info:SetText(("%d nodes  -  %s round  -  %s%s"):format(GP:RouteNodes(route),
+                    GP.FormatYards(route.length or GP:RouteLength(route)), table.concat(kinds, ", "), line2))
             end
             r.rebuild:SetDisabled(GP:Busy())
             r.edit:SetDisabled(route.working)
@@ -289,7 +298,7 @@ local function BuildNew(p, page)
     local heads, switches = {}, {}
     refs.kindSwitches = switches
 
-    -- below the list: name, merge, pass within, make (or save and cancel)
+    -- below the list: name, combine, passes within, make (or save and cancel)
     local y = -34 - LIST_H - 14
     T.RowLabel(p, "Name", 0, y)
     local name = T.EditBox(p, 300)
@@ -302,19 +311,19 @@ local function BuildNew(p, page)
     name:SetScript("OnTextChanged", function(self) hint:SetShown(self:GetText() == "" and not self:HasFocus()) end)
     refs.newName = name
 
-    local merge = T.Slider(p, "Merge nodes closer than", 0, y - 36, 300, Merge,
+    local merge = T.Slider(p, "Combine nodes within", 0, y - 36, 300, Merge,
         function(v) newMerge = v end,
         GP.RANGES.merge[1], GP.RANGES.merge[2], " yards", 5, nil, "Off")
-    T.Tooltip(merge, "Merge nodes closer than",
+    T.Tooltip(merge, "Combine nodes within",
         "Nodes this close together count as one stop, in the middle of them: you gather them from one spot "
         .. "and the route has fewer turns. Off keeps every node.")
     AddRefresher(merge.Refresh)
     refs.mergeSlider = merge
 
-    local sight = T.Slider(p, "Pass within", 0, y - 82, 300, Sight,
+    local sight = T.Slider(p, "Route passes within", 0, y - 82, 300, Sight,
         function(v) newSight = v end,
         GP.RANGES.sight[1], GP.RANGES.sight[2], " yards", 10, nil, "Off")
-    T.Tooltip(sight, "Pass within",
+    T.Tooltip(sight, "Route passes within",
         "With Find Herbs or Find Minerals on, you see a node on the minimap before you reach it. "
         .. "The route only has to come this close to each node, so it cuts corners and is shorter. "
         .. "Off takes you right up to every node.")

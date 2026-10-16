@@ -216,6 +216,24 @@ check(ui.routeRows[1]:IsShown() and ui.routeRows[1].route == route, "listed")
 check(ui.routeRows[1].info:GetText():find("7 nodes", 1, true))
 check(ui.routeRows[1].name:GetText() == route.name)
 
+STEP("with a route listed, the rest of the window still fills in")
+-- 1.2.0: the routes list stopped on Rebuild (it had no SetDisabled), so New route
+-- was left with an empty zone menu and sliders without their values
+GP:OpenConfig("new")
+check(#ui.newZone.keys > 0, "New route's zone menu has the zones")
+check(ui.newZone:GetText() == "Pick a zone", "and reads Pick a zone")
+check(ui.mergeSlider.valueText:GetText() == "Off", "combine shows its value")
+check(ui.sightSlider.valueText:GetText() == "100 yards", "passes within shows its value")
+check(ui.newNote:GetText():find("Pick a zone above", 1, true), "the list says what to do")
+GP:NewRoute({ mapID = E, kinds = { Herb = { Peacebloom = true } }, name = "busy" })
+GP:OpenConfig("routes")
+check(ui.routeRows[1].rebuild.disabled, "Rebuild greys out while a loop is worked out")
+Click(ui.routeRows[1].rebuild)
+RunJobs()
+for i = #GP.db.routes, 1, -1 do if GP.db.routes[i].name == "busy" then GP:DeleteRoute(GP.db.routes[i]) end end
+GP:OpenConfig("routes")
+check(not ui.routeRows[1].rebuild.disabled, "and comes back after")
+
 STEP("a second route takes the next color")
 GP:NewRoute({ mapID = E, kinds = { Mining = { ["Copper Vein"] = true } } })
 RunJobs()
@@ -370,7 +388,7 @@ GP:OpenConfig("routes")
 local nearRow
 for _, r in ipairs(ui.routeRows) do if r.route == nearRoute then nearRow = r end end
 check(nearRow and nearRow.info:GetText():find("7 nodes", 1, true)
-    and nearRow.info:GetText():find("passes within 50 yards", 1, true), "listed with its distance")
+    and nearRow.info:GetText():find("\nPasses within 50 yards", 1, true), "listed with its distance, on a second line")
 local stopsBefore = GP:NodeCount(nearRoute)
 gm:Add(E, "Herb Gathering", 1, 0.5, 0.43)
 check(GP:NodeCount(nearRoute) == stopsBefore, "a new node the route already passes near isn't added")
