@@ -30,8 +30,8 @@ GP.DEFAULTS = {
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
     minimapAngle = 200,
-    merge = 0,             -- a new route's "merge nodes closer than" (yards)
-    sight = 100,           -- a new route's "pass within" (yards, 0 = go to every node)
+    merge = 0,             -- where New route's "merge nodes closer than" starts (yards)
+    sight = 100,           -- where New route's "pass within" starts (yards, 0 = go to every node)
     nextColor = 1,
 }
 GP.RANGES = {
@@ -475,6 +475,50 @@ function GP:RebuildRoute(route)
         end
         self:Changed()
     end)
+end
+
+-- Changes a route's options (opts as for NewRoute) and finds its loop again.
+-- Turned down like NewRoute; if no loop can be made, the route stays as it was.
+function GP:EditRoute(route, opts)
+    if not self:HasGatherMate() then
+        Print("needs GatherMate2, where the nodes come from.")
+        return false
+    end
+    local any = false
+    for _, names in pairs(opts.kinds or {}) do if next(names) then any = true end end
+    if not any then
+        Print("pick at least one kind of node.")
+        return false
+    end
+    if self.job then
+        Print("still working out the last route. Try again in a moment.")
+        return false
+    end
+    local mapID = opts.mapID or route.mapID
+    local name = (type(opts.name) == "string" and opts.name:match("^%s*(.-)%s*$")) or ""
+    if name == "" then name = self:RouteName(mapID, opts.kinds) end
+    if self:RouteNamed(mapID, name, route) then
+        Print(NameTakenMessage(name, mapID))
+        return false
+    end
+    local old = { mapID = route.mapID, name = route.name, kinds = route.kinds, merge = route.merge,
+        sight = route.sight, points = route.points, nodes = route.nodes, length = route.length }
+    route.mapID, route.name, route.kinds = mapID, name, opts.kinds
+    route.merge, route.sight = opts.merge or 0, opts.sight or 0
+    route.working = true
+    self:RunJob(function() return Build(route) end, function(read)
+        route.working = nil
+        if self:NodeCount(route) < 2 then
+            for k, v in pairs(old) do route[k] = v end
+            Print("GatherMate2 has " .. (read == 1 and "only one" or "no") .. " node of those kinds in "
+                .. self:MapName(mapID) .. ", so " .. route.name .. " was left as it was.")
+        else
+            Print(("changed |cffffd100%s|r in %s: %d nodes, %s round."):format(route.name, self:MapName(route.mapID),
+                self:RouteNodes(route), self.FormatYards(route.length)))
+        end
+        self:Changed()
+    end)
+    return true
 end
 
 function GP:DeleteRoute(route)
@@ -958,7 +1002,7 @@ end
 local function Help()
     Print("commands:")
     print("  |cffffd100/gpf|r  routes and options")
-    print("  |cffffd100/gpf new|r  make a route in the zone you're in")
+    print("  |cffffd100/gpf new|r  make a new route")
     print("  |cffffd100/gpf show|r, |cffffd100/gpf hide|r  show or hide all the lines")
 end
 

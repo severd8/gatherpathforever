@@ -162,16 +162,43 @@ local ui = GP.ui
 check(ui.makeButton.disabled, "Make route waits for a pick")
 local function SwitchFor(name)
     for _, sw in ipairs(ui.kindSwitches) do
-        if sw.entry and sw.entry.name == name and sw:IsShown() then return sw end
+        local e = rawget(sw, "entry")
+        if e and e.name == name and sw:IsShown() then return sw end
     end
 end
+check(ui.newZone.getter() == nil and not SwitchFor("Peacebloom") and ui.newNote:GetText():find("Pick a zone", 1, true),
+    "starts with no zone picked")
+check(not ui.cancelButton:IsShown(), "no Cancel when making a new route")
+Click(ui.myZone)
+check(ui.newZone.getter() == E, "My zone picks the zone you're in")
 check(SwitchFor("Peacebloom") and SwitchFor("Copper Vein") and SwitchFor("Silverleaf"), "a switch per kind of node")
 check(SwitchFor("Peacebloom").label:GetText():find("(5)", 1, true), "with how many there are")
 Click(SwitchFor("Peacebloom"))
 Click(SwitchFor("Silverleaf"))
 check(SwitchFor("Peacebloom"):IsOn() and not ui.makeButton.disabled)
-check(GP.db.sight == 100 and ui.sightSlider, "new routes pass within 100 yards unless you change it")
-GP.db.sight = 0   -- this route goes right up to every node
+check(ui.sightSlider:GetValue() == 100, "new routes pass within 100 yards unless you change it")
+ui.sightSlider:SetValue(0)   -- this route goes right up to every node
+ui.mergeSlider:SetValue(10)
+ui.newName:SetText("Picked")
+
+STEP("New route always opens blank")
+GP:OpenConfig("routes")
+GP.db.sight, GP.db.merge = 90, 20   -- what 1.1.0 remembered from the last route
+GP:OpenConfig("new")
+check(ui.newZone.getter() == nil and ui.newName:GetText() == "" and not SwitchFor("Peacebloom"), "no zone, name or picks")
+check(ui.sightSlider:GetValue() == 100 and ui.mergeSlider:GetValue() == 0, "sliders back at their defaults")
+GP.config:Hide()
+GP:OpenConfig("new")
+Click(ui.myZone)
+check(not SwitchFor("Peacebloom"):IsOn(), "closing the window clears the picks too")
+Click(SwitchFor("Peacebloom"))
+GP.config:Hide()
+GP.config:Show()
+check(ui.newZone.getter() == nil, "and showing it again on New route")
+Click(ui.myZone)
+Click(SwitchFor("Peacebloom"))
+Click(SwitchFor("Silverleaf"))
+ui.sightSlider:SetValue(0)
 Click(ui.makeButton)
 check(GP:Busy(), "working it out over a few frames")
 check(GP.config.currentTab == "routes", "then shows the routes")
@@ -392,6 +419,76 @@ Click(GP.confirmWindow.yes)
 check(#GP.db.routes == 1 and GP.db.routes[1] == route, "deleted")
 check(not ui.routeRows[2]:IsShown(), "and gone from the list")
 
+STEP("edit a route")
+GP:OpenConfig("routes")
+local color, id = route.color, route.id
+Click(ui.routeRows[1].edit)
+local newPage = GP.config.pages.new
+check(GP.config.currentTab == "new" and newPage.title:GetText() == "Edit route", "Edit opens the route's options")
+check(ui.newZone.getter() == E and ui.newName:GetText() == "Elwynn herbs", "its zone and name")
+check(SwitchFor("Peacebloom"):IsOn() and SwitchFor("Silverleaf"):IsOn() and not SwitchFor("Copper Vein"):IsOn(), "its nodes")
+check(ui.sightSlider:GetValue() == 0 and ui.mergeSlider:GetValue() == 0, "its merge and pass within")
+check(ui.makeButton:GetText() == "Save changes" and ui.cancelButton:IsShown())
+Click(SwitchFor("Silverleaf"))
+Click(ui.cancelButton)
+check(GP.config.currentTab == "routes" and route.kinds["Herb Gathering"].Silverleaf and not GP:Busy(), "Cancel leaves it")
+GP:OpenConfig("new")
+check(newPage.title:GetText() == "New route" and ui.newZone.getter() == nil and ui.newName:GetText() == ""
+    and ui.makeButton:GetText() == "Make route", "New route is blank again after an edit")
+
+GP:NewRoute({ mapID = E, kinds = { Mining = { ["Copper Vein"] = true } } })
+RunJobs()
+local copper = GP.db.routes[2]
+GP:OpenConfig("routes")
+Click(ui.routeRows[1].edit)
+ui.newName:SetText("copper vein")
+Click(ui.makeButton)
+check(GP.config.currentTab == "new" and not GP:Busy() and route.name == "Elwynn herbs"
+    and logHas("already a route called |cffffd100copper vein|r"), "not to another route's name")
+check(SwitchFor("Peacebloom"):IsOn() and ui.newName:GetText() == "copper vein", "and keeps what was picked")
+
+ui.newName:SetText("Just Peacebloom")
+Click(SwitchFor("Silverleaf"))
+ui.sightSlider:SetValue(50)
+Click(ui.makeButton)
+check(GP:Busy() and route.working and GP.config.currentTab == "routes", "Save changes works it out again")
+check(ui.routeRows[1].edit.disabled, "no Edit while it's being worked out")
+RunJobs()
+check(#GP.db.routes == 2 and route.name == "Just Peacebloom" and route.sight == 50 and route.nodes == 7
+    and not route.kinds["Herb Gathering"].Silverleaf, "changed in place")
+check(route.id == id and route.color == color and GP.db.routes[1] == route, "the same route, same color")
+check(logHas("changed |cffffd100Just Peacebloom|r in Elwynn Forest: 7 nodes"), "says so in chat")
+check(not ui.routeRows[1].edit.disabled)
+
+Click(ui.routeRows[1].edit)
+ui.newName:SetText("")
+Click(SwitchFor("Silverleaf"))
+ui.sightSlider:SetValue(0)
+Click(ui.makeButton)
+RunJobs()
+check(route.name == "Peacebloom and Silverleaf" and GP:NodeCount(route) == #GP:CollectNodes(E, route.kinds),
+    "a blank name is made from the nodes")
+check(GP:EditRoute(route, { kinds = route.kinds, name = "Elwynn herbs", merge = 0, sight = 0 }))
+RunJobs()
+check(route.name == "Elwynn herbs" and route.mapID == E, "its own zone when none is given")
+check(GP:EditRoute(route, { kinds = route.kinds, name = " elwynn HERBS", merge = 0, sight = 0 }), "keeping its own name is fine")
+RunJobs()
+check(route.name == "elwynn HERBS")
+GP:RenameRoute(route, "Elwynn herbs")
+
+local before = route.points
+check(GP:EditRoute(route, { mapID = E, kinds = { Mining = { ["Tin Vein"] = true } }, name = "Tin" }))
+RunJobs()
+check(route.points == before and route.name == "Elwynn herbs" and route.kinds["Herb Gathering"].Peacebloom
+    and route.sight == 0 and logHas("was left as it was"), "no nodes there: left as it was")
+check(not GP:EditRoute(route, { kinds = {} }) and logHas("pick at least one"), "nothing picked: no change")
+
+GP:OpenConfig("routes")
+Click(ui.routeRows[2].edit)
+GP:DeleteRoute(copper)
+check(ui.newZone.getter() == nil and newPage.title:GetText() == "New route", "the route deleted meanwhile: blank")
+GP:OpenConfig("routes")
+
 STEP("hide every line from the minimap button")
 Click(GP.minimapButton, "RightButton")
 check(not GP.db.worldMap and not GP.db.minimap, "all off")
@@ -434,6 +531,6 @@ check(GP:NewRoute({ mapID = E, kinds = { Mining = { ["Copper Vein"] = true } } }
 GP:OpenConfig("new")
 check(#GP:ZoneNodes(E) == 0)
 GP:OpenConfig("routes")
-check(GP:NodeCount(GP.db.routes[1]) == 7, "routes already made still work")
+check(GP:NodeCount(GP.db.routes[1]) == 9, "routes already made still work")
 
 LOG[#LOG + 1] = "PASSED"

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.0
+
+- **New route** now opens blank every time: no zone, no nodes picked, no name, and **Merge** and **Pass within** at their defaults (off and 100 yards). Pick a zone from the list or click **My zone**.
+- New **Edit** button on each route in the **Routes** tab: it opens the route's zone, nodes, name, merge and pass within so you can change them, then **Save changes** finds the loop again. The route keeps its color and stays where it is in the list. **Cancel** leaves it as it was.
+- An edited route still needs a name of its own in its zone. If the nodes you pick aren't in GatherMate2, the route is left as it was.
+
 ## 1.1.1
 
 - **Pass within** now starts at 100 yards instead of 50. Find Herbs and Find Minerals show nodes anywhere on the minimap (about 67 to 233 yards depending on zoom), so 100 still lets you see every node at any zoom and makes routes shorter. If you had it at 50 from 1.1.0, it moves to 100; set it back on the New route tab if you prefer. Routes you already made are unchanged.

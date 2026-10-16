@@ -34,7 +34,11 @@ NewObj = newObj
 function Methods:CreateTexture() return newObj("Texture", nil, self) end
 function Methods:CreateFontString() return newObj("FontString", nil, self) end
 function Methods:CreateLine() return newObj("Line", nil, self) end
-function Methods:Show() self.__shown = true end
+function Methods:Show()
+    local was = self.__shown
+    self.__shown = true
+    if not was and self.__scripts.OnShow then self.__scripts.OnShow(self) end
+end
 function Methods:Hide()
     local was = self.__shown
     self.__shown = false

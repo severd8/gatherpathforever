@@ -146,6 +146,15 @@ local function BuildRoutes(p)
         end
         r.name:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
         r.name:SetScript("OnEditFocusLost", rename)
+        r.edit = FlatButton(r, "Edit", 70, 20)
+        r.edit:SetPoint("LEFT", r.name, "RIGHT", 8, 0)
+        r.edit:SetScript("OnClick", function(self)
+            if self.disabled or not r.route then return end
+            GP:EditRouteInWindow(r.route)
+        end)
+        T.Disabler(r.edit, { r.edit })
+        T.Tooltip(r.edit, "Edit", "Change this route's zone, nodes, name, merge and pass within, "
+            .. "then find its loop again.")
         r.info = Text(r, "", "GameFontDisableSmall")
         r.info:SetPoint("TOPLEFT", 40, -34)
         r.info:SetWidth(300)
@@ -201,6 +210,7 @@ local function BuildRoutes(p)
                     (route.sight or 0) > 0 and ("  -  passes within " .. route.sight .. " yards") or ""))
             end
             r.rebuild:SetDisabled(GP:Busy())
+            r.edit:SetDisabled(route.working)
         end
         for i = #routes + 1, #rows do rows[i]:Hide(); rows[i].route = nil end
         scroll:SetContent(PAGE_W - 16, math.max(1, #routes * ROW_H), true)
@@ -215,13 +225,37 @@ local function BuildRoutes(p)
 end
 
 ---------------------------------------------------------------------------
--- New route tab
+-- New route tab (also where a route is edited)
 ---------------------------------------------------------------------------
-local newZone, picked, newName, newMerge, newSight = nil, {}, "", nil, nil
+-- What's picked. Opening the tab starts it blank (ResetNew); Edit fills it
+-- from a route (EditInWindow) and Save changes that route.
+local newZone, picked, newMerge, newSight, editing = nil, {}, nil, nil, nil
+local nameBox
 
-local function BuildNew(p)
+local function Merge() return newMerge or GP.DEFAULTS.merge end
+local function Sight() return newSight or GP.DEFAULTS.sight end
+
+local function ResetNew()
+    newZone, picked, newMerge, newSight, editing = nil, {}, nil, nil, nil
+    if nameBox then nameBox:SetText(""); nameBox:ClearFocus() end
+end
+
+local function EditInWindow(route)
+    newZone, newMerge, newSight, editing = route.mapID, route.merge or 0, route.sight or 0, route
+    picked = {}
+    for kind, names in pairs(route.kinds) do
+        for n in pairs(names) do
+            picked[kind] = picked[kind] or {}
+            picked[kind][n] = true
+        end
+    end
+    nameBox:SetText(route.name)
+    nameBox:ClearFocus()
+end
+
+local function BuildNew(p, page)
     T.RowLabel(p, "Zone", 0, 0)
-    local zone = T.Dropdown(p, 300, {}, function(k) return GP:MapName(k) end,
+    local zone = T.Dropdown(p, 300, {}, function(k) return k and GP:MapName(k) or "Pick a zone" end,
         function() return newZone end, function(k)
             if k ~= newZone then newZone, picked = k, {} end
             GP:RefreshConfig()
@@ -237,6 +271,7 @@ local function BuildNew(p)
         GP:RefreshConfig()
     end)
     T.Tooltip(here, "My zone", "Pick the zone you're in.")
+    refs.myZone = here
 
     local LIST_H = 210
     local holder = CreateFrame("Frame", nil, p)
@@ -250,24 +285,25 @@ local function BuildNew(p)
     local scroll = T.ScrollArea(inner, LIST_H - 16)
     local list = scroll.child
     local note = T.Note(holder, "", 12, -12, PAGE_W - 24)
+    refs.newNote = note
     local heads, switches = {}, {}
     refs.kindSwitches = switches
 
-    -- below the list: name, merge, make
+    -- below the list: name, merge, pass within, make (or save and cancel)
     local y = -34 - LIST_H - 14
     T.RowLabel(p, "Name", 0, y)
     local name = T.EditBox(p, 300)
     name:SetPoint("TOPLEFT", DROP_X, y)
-    name:SetScript("OnTextChanged", function(self) newName = self:GetText() end)
+    nameBox = name
     local hint = Text(name, "", "GameFontDisableSmall")
     hint:SetPoint("LEFT", 6, 0)
     name:SetScript("OnEditFocusGained", function() hint:Hide() end)
     name:SetScript("OnEditFocusLost", function(self) hint:SetShown(self:GetText() == "") end)
+    name:SetScript("OnTextChanged", function(self) hint:SetShown(self:GetText() == "" and not self:HasFocus()) end)
     refs.newName = name
 
-    local merge = T.Slider(p, "Merge nodes closer than", 0, y - 36, 300,
-        function() return newMerge or GP.db.merge end,
-        function(v) newMerge = v; GP.db.merge = v end,
+    local merge = T.Slider(p, "Merge nodes closer than", 0, y - 36, 300, Merge,
+        function(v) newMerge = v end,
         GP.RANGES.merge[1], GP.RANGES.merge[2], " yards", 5, nil, "Off")
     T.Tooltip(merge, "Merge nodes closer than",
         "Nodes this close together count as one stop, in the middle of them: you gather them from one spot "
@@ -275,9 +311,8 @@ local function BuildNew(p)
     AddRefresher(merge.Refresh)
     refs.mergeSlider = merge
 
-    local sight = T.Slider(p, "Pass within", 0, y - 82, 300,
-        function() return newSight or GP.db.sight end,
-        function(v) newSight = v; GP.db.sight = v end,
+    local sight = T.Slider(p, "Pass within", 0, y - 82, 300, Sight,
+        function(v) newSight = v end,
         GP.RANGES.sight[1], GP.RANGES.sight[2], " yards", 10, nil, "Off")
     T.Tooltip(sight, "Pass within",
         "With Find Herbs or Find Minerals on, you see a node on the minimap before you reach it. "
@@ -300,17 +335,31 @@ local function BuildNew(p)
                 end
             end
         end
-        local route = GP:NewRoute({ mapID = newZone, kinds = kinds, name = newName,
-            merge = newMerge or GP.db.merge, sight = newSight or GP.db.sight })
+        local opts = { mapID = newZone, kinds = kinds, name = name:GetText(), merge = Merge(), sight = Sight() }
+        local route
+        if editing then
+            route = GP:EditRoute(editing, opts) and editing
+        else
+            route = GP:NewRoute(opts)
+        end
         if route then
-            picked, newName = {}, ""
-            name:SetText("")
-            name:ClearFocus()
+            ResetNew()
             routesZone = route.mapID
             GP:OpenConfig("routes")
         end
     end)
     T.Disabler(make, { make })
+
+    local cancel = FlatButton(p, "Cancel", 130, 22)
+    cancel:SetPoint("TOPRIGHT", 0, y - 74)
+    cancel:SetScript("OnClick", function()
+        local route = editing
+        ResetNew()
+        if route then routesZone = route.mapID end
+        GP:OpenConfig("routes")
+    end)
+    T.Tooltip(cancel, "Cancel", "Leave the route as it was.")
+    refs.cancelButton = cancel
 
     local function Head(i)
         if heads[i] then return heads[i] end
@@ -332,7 +381,13 @@ local function BuildNew(p)
     end
 
     AddRefresher(function()
-        if not newZone then newZone = GP:PlayerMap() end
+        -- the route being edited was deleted meanwhile
+        if editing then
+            local found = false
+            for _, r in ipairs(GP.db.routes) do if r == editing then found = true end end
+            if not found then ResetNew() end
+        end
+        page.title:SetText(editing and "Edit route" or "New route")
         zone.keys = GP:GatherZones()
         zone:Refresh()
         local nodes = newZone and GP:ZoneNodes(newZone) or {}
@@ -372,6 +427,8 @@ local function BuildNew(p)
         if not GP:HasGatherMate() then
             note:SetText("GatherPath needs GatherMate2, where the herb and ore nodes come from. "
                 .. "Install it from CurseForge, then /reload.")
+        elseif not newZone then
+            note:SetText("Pick a zone above, or click My zone for the one you're in.")
         elseif #nodes == 0 then
             note:SetText("GatherMate2 has no nodes in " .. GP:MapName(newZone) .. " yet. Gather there (or import "
                 .. "GatherMate2 data), then come back.")
@@ -386,7 +443,8 @@ local function BuildNew(p)
         hint:SetText(any and ("Name: " .. GP:RouteName(newZone, kinds)) or "Name (made from what you pick)")
         hint:SetShown(name:GetText() == "" and not name:HasFocus())
         make:SetDisabled(not any or GP:Busy())
-        make:SetText(GP:Busy() and "Working..." or "Make route")
+        make:SetText(GP:Busy() and "Working..." or editing and "Save changes" or "Make route")
+        cancel:SetShown(editing ~= nil)
     end)
 end
 
@@ -459,10 +517,23 @@ function GP:BuildConfig()
             if v and v:find("@") then return nil end
             return v and v:gsub("^v", "")
         end,
-        onShow = function() GP:RefreshConfig() end,
-        onTab = function() GP:RefreshConfig() end,
+        onShow = function()
+            if GP.config and GP.config.currentTab == "new" then ResetNew() end
+            GP:RefreshConfig()
+        end,
+        onTab = function(key)
+            if key == "new" then ResetNew() end
+            GP:RefreshConfig()
+        end,
     })
     return self.config
+end
+
+-- Opens New route filled in from this route; Save changes then changes it
+function GP:EditRouteInWindow(route)
+    self:OpenConfig("new")
+    EditInWindow(route)
+    self:RefreshConfig()
 end
 
 function GP:RefreshConfig()
