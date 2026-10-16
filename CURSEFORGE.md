@@ -17,7 +17,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **As many routes as you like**, several per zone, each with its own color. Show or hide each one, rename it, or delete it.
 - **Routes that grow.** When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, where it adds the least walking. **Rebuild** reads every node again and finds the loop again.
 - **Merge nearby nodes** into one stop if you like, so the route has fewer turns.
-- **Pass within** a distance of each node instead of right up to it (50 yards to start): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter.
+- **Pass within** a distance of each node instead of right up to it (100 yards to start): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter.
 - **Your look**: line width on the world map and on the minimap, and opacity.
 - The same look as TauntMaster Forever, ToppedOff Forever, Outfitter Forever and BattleText Forever.
 

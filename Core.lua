@@ -31,7 +31,7 @@ GP.DEFAULTS = {
     minimapButton = true,
     minimapAngle = 200,
     merge = 0,             -- a new route's "merge nodes closer than" (yards)
-    sight = 50,            -- a new route's "pass within" (yards, 0 = go to every node)
+    sight = 100,           -- a new route's "pass within" (yards, 0 = go to every node)
     nextColor = 1,
 }
 GP.RANGES = {
@@ -66,6 +66,9 @@ GP.KIND_NAMES = {
 function GP:LoadSettings()
     GatherPathForeverDB = type(GatherPathForeverDB) == "table" and GatherPathForeverDB or {}
     local db = GatherPathForeverDB
+    -- 1.1.0 started "pass within" at 50 yards; 1.1.1 starts it at 100
+    if db.sight == 50 and not db.sight100 then db.sight = nil end
+    db.sight100 = true
     for k, v in pairs(self.DEFAULTS) do
         if db[k] == nil then db[k] = v end
     end

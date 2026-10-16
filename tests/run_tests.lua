@@ -170,7 +170,7 @@ check(SwitchFor("Peacebloom").label:GetText():find("(5)", 1, true), "with how ma
 Click(SwitchFor("Peacebloom"))
 Click(SwitchFor("Silverleaf"))
 check(SwitchFor("Peacebloom"):IsOn() and not ui.makeButton.disabled)
-check(GP.db.sight == 50 and ui.sightSlider, "new routes pass within 50 yards unless you change it")
+check(GP.db.sight == 100 and ui.sightSlider, "new routes pass within 100 yards unless you change it")
 GP.db.sight = 0   -- this route goes right up to every node
 Click(ui.makeButton)
 check(GP:Busy(), "working it out over a few frames")
@@ -420,6 +420,12 @@ saved.worldWidth = 99
 GP:LoadSettings()
 check(#GP.db.routes == 1 and GP.db.routes[1].name == "Elwynn herbs", "the real route stays")
 check(GP.db.worldWidth == 10, "out-of-range settings are kept in range")
+saved.sight, saved.sight100 = 50, nil
+GP:LoadSettings()
+check(GP.db.sight == 100, "1.1.0's 50 yards becomes the new 100")
+GP.db.sight = 50
+GP:LoadSettings()
+check(GP.db.sight == 50, "but 50 picked later stays")
 
 STEP("without GatherMate2")
 GatherMate2 = nil
