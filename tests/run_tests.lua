@@ -63,6 +63,54 @@ do
     local at, cost = O.BestInsert(pts, { 1, 2, 3, 4 }, { 50, -10 })
     check(at == 1 and cost > 0 and cost < 5, "a new node goes in the leg it's beside")
 end
+do
+    -- passing within a distance of each node
+    local function covered(nodes, stops, r)
+        for _, c in ipairs(nodes) do
+            local best = math.huge
+            for i = 1, #stops do
+                best = math.min(best, O.SegDist(stops[i], stops[i % #stops + 1], c))
+            end
+            if best > r + 0.5 then return false end
+        end
+        return true
+    end
+    local function loopLength(stops)
+        local t = {}
+        for i = 1, #stops do t[i] = i end
+        return O.Length(stops, t)
+    end
+    local p = O.Place({ 0, 0 }, { 100, 0 }, { 50, 30 }, 40)
+    check(near(p[1], 50) and near(p[2], 0), "a line that passes close enough is walked straight")
+    p = O.Place({ 0, 0 }, { 100, 0 }, { 50, 100 }, 40)
+    check(near(p[1], 50, 0.01) and near(p[2], 60, 0.01), "else the closest spot on the circle")
+    check(near(O.SegDist({ 0, 0 }, { 10, 0 }, { 20, 0 }), 10) and near(O.SegDist({ 0, 0 }, { 10, 0 }, { 5, 3 }), 3))
+    -- a square of nodes 200 apart, 40 yards: each corner cut
+    local sq = { { 0, 0 }, { 200, 0 }, { 200, 200 }, { 0, 200 } }
+    local stops = O.Shortcut(sq, 40)
+    check(#stops == 4 and covered(sq, stops, 40), "every node still within reach")
+    check(near(loopLength(stops), 4 * (200 - 80 / math.sqrt(2)), 1), "each corner cut 40 yards in")
+    check(near(loopLength(O.Shortcut(sq, 0)), 800, 0.01), "off: right up to every node")
+    -- a zigzag along a line: one straight run instead
+    local zig = {}
+    for i = 0, 10 do zig[#zig + 1] = { i * 50, (i % 2 == 0) and 0 or 60 } end
+    stops = O.Shortcut(zig, 40)
+    check(covered(zig, stops, 40), "zigzag covered")
+    check(#stops < #zig, "stops on a straight line are dropped")
+    check(loopLength(stops) < O.Length(zig, O.Solve(zig)) * 0.9, "and it's shorter")
+    -- random fields: always covered, never longer
+    for _ = 1, 15 do
+        local f = {}
+        for i = 1, 60 do f[i] = { math.random() * 1200, math.random() * 900 } end
+        local full = O.Length(f, O.Solve(f))
+        for _, r in ipairs({ 20, 50, 120 }) do
+            local s2 = O.Shortcut(f, r)
+            check(#s2 >= 2 and covered(f, s2, r), "random nodes covered at " .. r)
+            check(loopLength(s2) <= full + 0.01, "never longer than going to every node")
+        end
+    end
+    check(#O.Shortcut({ { 0, 0 }, { 10, 0 } }, 50) == 2, "two nodes stay two stops")
+end
 
 ---------------------------------------------------------------------------
 STEP("load with GatherMate2")
@@ -122,6 +170,8 @@ check(SwitchFor("Peacebloom").label:GetText():find("(5)", 1, true), "with how ma
 Click(SwitchFor("Peacebloom"))
 Click(SwitchFor("Silverleaf"))
 check(SwitchFor("Peacebloom"):IsOn() and not ui.makeButton.disabled)
+check(GP.db.sight == 50 and ui.sightSlider, "new routes pass within 50 yards unless you change it")
+GP.db.sight = 0   -- this route goes right up to every node
 Click(ui.makeButton)
 check(GP:Busy(), "working it out over a few frames")
 check(GP.config.currentTab == "routes", "then shows the routes")
@@ -276,6 +326,42 @@ GP.db.autoAdd = false
 gm:Add(E, "Herb Gathering", 1, 0.66, 0.66)
 check(GP:NodeCount(route) == 7, "Add new nodes off")
 GP.db.autoAdd = true
+
+---------------------------------------------------------------------------
+STEP("a route that passes near its nodes")
+GP:NewRoute({ mapID = E, kinds = { ["Herb Gathering"] = { Peacebloom = true } }, name = "Every" })
+RunJobs()
+local every = GP.db.routes[#GP.db.routes]
+GP:NewRoute({ mapID = E, kinds = { ["Herb Gathering"] = { Peacebloom = true } }, name = "Near", sight = 50 })
+RunJobs()
+local nearRoute = GP.db.routes[#GP.db.routes]
+check(nearRoute.sight == 50 and nearRoute.nodes == 7, "7 nodes")
+check(nearRoute.length < every.length - 100, "shorter than going to every node")
+check(logHas("made |cffffd100Near|r in Elwynn Forest: 7 nodes"), "counts nodes, not stops")
+GP:DeleteRoute(every)
+GP:OpenConfig("routes")
+local nearRow
+for _, r in ipairs(ui.routeRows) do if r.route == nearRoute then nearRow = r end end
+check(nearRow and nearRow.info:GetText():find("7 nodes", 1, true)
+    and nearRow.info:GetText():find("passes within 50 yards", 1, true), "listed with its distance")
+local stopsBefore = GP:NodeCount(nearRoute)
+gm:Add(E, "Herb Gathering", 1, 0.5, 0.43)
+check(GP:NodeCount(nearRoute) == stopsBefore, "a new node the route already passes near isn't added")
+gm:Add(E, "Herb Gathering", 1, 0.5, 0.9)
+check(GP:NodeCount(nearRoute) == stopsBefore + 1 and nearRoute.nodes == 8, "a far one is")
+local w, h = 1600, 1066
+local added
+for i = 1, GP:NodeCount(nearRoute) do
+    local dx, dy = (nearRoute.points[2 * i - 1] - 0.5) * w, (nearRoute.points[2 * i] - 0.9) * h
+    local d = math.sqrt(dx * dx + dy * dy)
+    if d <= 50.5 and d > 1 then added = true end
+end
+check(added, "a stop within 50 yards of it, not on it")
+gm:Delete(E, "Herb Gathering", 0.5, 0.9)
+check(GP:NodeCount(nearRoute) == stopsBefore + 1, "deleting leaves it for Rebuild")
+GP:DeleteRoute(nearRoute)
+gm:Delete(E, "Herb Gathering", 0.5, 0.43)
+check(GP:NodeCount(route) == 7, "the route to every node is back as it was")
 
 ---------------------------------------------------------------------------
 STEP("rename, hide, delete")

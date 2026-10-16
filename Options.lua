@@ -195,9 +195,10 @@ local function BuildRoutes(p)
                     if next(names) then kinds[#kinds + 1] = GP:KindName(kind) end
                 end
                 table.sort(kinds)
-                r.info:SetText(("%d nodes  -  %s round  -  %s%s"):format(GP:NodeCount(route),
+                r.info:SetText(("%d nodes  -  %s round  -  %s%s%s"):format(GP:RouteNodes(route),
                     GP.FormatYards(route.length or GP:RouteLength(route)), table.concat(kinds, ", "),
-                    (route.merge or 0) > 0 and ("  -  nodes within " .. route.merge .. " yards merged") or ""))
+                    (route.merge or 0) > 0 and ("  -  nodes within " .. route.merge .. " yards merged") or "",
+                    (route.sight or 0) > 0 and ("  -  passes within " .. route.sight .. " yards") or ""))
             end
             r.rebuild:SetDisabled(GP:Busy())
         end
@@ -216,7 +217,7 @@ end
 ---------------------------------------------------------------------------
 -- New route tab
 ---------------------------------------------------------------------------
-local newZone, picked, newName, newMerge = nil, {}, "", nil
+local newZone, picked, newName, newMerge, newSight = nil, {}, "", nil, nil
 
 local function BuildNew(p)
     T.RowLabel(p, "Zone", 0, 0)
@@ -237,7 +238,7 @@ local function BuildNew(p)
     end)
     T.Tooltip(here, "My zone", "Pick the zone you're in.")
 
-    local LIST_H = 236
+    local LIST_H = 210
     local holder = CreateFrame("Frame", nil, p)
     holder:SetPoint("TOPLEFT", 0, -34)
     holder:SetSize(PAGE_W, LIST_H)
@@ -272,6 +273,18 @@ local function BuildNew(p)
         "Nodes this close together count as one stop, in the middle of them: you gather them from one spot "
         .. "and the route has fewer turns. Off keeps every node.")
     AddRefresher(merge.Refresh)
+    refs.mergeSlider = merge
+
+    local sight = T.Slider(p, "Pass within", 0, y - 82, 300,
+        function() return newSight or GP.db.sight end,
+        function(v) newSight = v; GP.db.sight = v end,
+        GP.RANGES.sight[1], GP.RANGES.sight[2], " yards", 10, nil, "Off")
+    T.Tooltip(sight, "Pass within",
+        "With Find Herbs or Find Minerals on, you see a node on the minimap before you reach it. "
+        .. "The route only has to come this close to each node, so it cuts corners and is shorter. "
+        .. "Off takes you right up to every node.")
+    AddRefresher(sight.Refresh)
+    refs.sightSlider = sight
 
     local make = FlatButton(p, "Make route", 130, 26)
     make:SetPoint("TOPRIGHT", 0, y - 40)
@@ -287,7 +300,8 @@ local function BuildNew(p)
                 end
             end
         end
-        local route = GP:NewRoute({ mapID = newZone, kinds = kinds, name = newName, merge = newMerge or GP.db.merge })
+        local route = GP:NewRoute({ mapID = newZone, kinds = kinds, name = newName,
+            merge = newMerge or GP.db.merge, sight = newSight or GP.db.sight })
         if route then
             picked, newName = {}, ""
             name:SetText("")

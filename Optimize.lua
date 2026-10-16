@@ -183,6 +183,17 @@ local function OrOpt(points, tour)
     return better
 end
 
+-- 2-opt and Or-opt until neither finds anything shorter
+local function Improve(points, tour, maxRounds)
+    if #tour <= 3 then return tour end
+    for _ = 1, maxRounds or 60 do
+        local a = TwoOpt(points, tour)
+        local b = OrOpt(points, tour)
+        if not (a or b) then break end
+    end
+    return tour
+end
+
 -- The shortest loop it can find through the points. Returns the tour.
 function O.Solve(points, maxRounds)
     local n = #points
@@ -191,13 +202,111 @@ function O.Solve(points, maxRounds)
         for i = 1, n do tour[i] = i end
         return tour
     end
-    tour = Nearest(points)
-    for _ = 1, maxRounds or 60 do
-        local a = TwoOpt(points, tour)
-        local b = OrOpt(points, tour)
-        if not (a or b) then break end
+    return Improve(points, Nearest(points), maxRounds)
+end
+
+-- The point of the segment a-b closest to c
+local function Closest(a, b, c)
+    local dx, dy = b[1] - a[1], b[2] - a[2]
+    local len2 = dx * dx + dy * dy
+    if len2 < EPS then return { a[1], a[2] } end
+    local t = ((c[1] - a[1]) * dx + (c[2] - a[2]) * dy) / len2
+    t = t < 0 and 0 or (t > 1 and 1 or t)
+    return { a[1] + t * dx, a[2] + t * dy }
+end
+O.Closest = Closest
+
+-- How far c is from the segment a-b
+function O.SegDist(a, b, c) return Dist(c, Closest(a, b, c)) end
+
+-- Where to walk past node c, coming from a and going on to b, when you only
+-- need to get within `radius` of it: the spot that far from c with the
+-- shortest a -> spot -> b. On the straight line a-b if that passes close enough.
+function O.Place(a, b, c, radius)
+    local q = Closest(a, b, c)
+    local d = Dist(q, c)
+    if d <= radius then return q end
+    local function At(t)
+        return { c[1] + radius * math.cos(t), c[2] + radius * math.sin(t) }
     end
-    return tour
+    local function Cost(t)
+        local p = At(t)
+        return Dist(a, p) + Dist(p, b)
+    end
+    -- search the half of the circle facing the line (golden section)
+    local t0 = math.atan2(q[2] - c[2], q[1] - c[1])
+    local lo, hi = t0 - math.pi / 2, t0 + math.pi / 2
+    local g = (sqrt(5) - 1) / 2
+    local x1, x2 = hi - g * (hi - lo), lo + g * (hi - lo)
+    local f1, f2 = Cost(x1), Cost(x2)
+    for _ = 1, 24 do
+        if f1 < f2 then
+            hi, x2, f2 = x2, x1, f1
+            x1 = hi - g * (hi - lo)
+            f1 = Cost(x1)
+        else
+            lo, x1, f1 = x1, x2, f2
+            x2 = lo + g * (hi - lo)
+            f2 = Cost(x2)
+        end
+    end
+    local best = f1 < f2 and x1 or x2
+    if Cost(t0) <= Cost(best) then best = t0 end
+    return At(best)
+end
+
+-- The route only has to pass within `radius` yards of each node (you can see
+-- it on the minimap from there with Find Herbs or Find Minerals). Starts from
+-- the loop through the nodes themselves, slides each stop towards the line
+-- between its neighbours (never more than `radius` from its node), finds the
+-- best order again, and drops stops that end up on a straight line.
+-- Returns the stops in loop order, { x, y }.
+function O.Shortcut(nodes, radius, maxRounds)
+    local tour = O.Solve(nodes, maxRounds)
+    local stops = {}
+    for i, k in ipairs(tour) do stops[i] = { nodes[k][1], nodes[k][2], node = nodes[k] } end
+    if not radius or radius <= 0 or #stops < 3 then return stops end
+    for _ = 1, 4 do
+        local n = #stops
+        local order = {}
+        for i = 1, n do order[i] = i end
+        for _ = 1, 40 do
+            local moved = 0
+            for i = 1, n do
+                local a, s, b = stops[order[i == 1 and n or i - 1]], stops[order[i]], stops[order[i % n + 1]]
+                local before = Dist(a, s) + Dist(s, b)
+                local p = O.Place(a, b, s.node, radius)
+                if Dist(a, p) + Dist(p, b) < before - EPS then
+                    moved = math.max(moved, Dist(p, s))
+                    s[1], s[2] = p[1], p[2]
+                end
+            end
+            Step(n * 8)
+            if moved < 0.1 then break end
+        end
+        local again = {}
+        for i = 1, n do again[i] = stops[order[i]] end
+        stops = again
+        for i = 1, n do order[i] = i end
+        local before = O.Length(stops, order)
+        Improve(stops, order, maxRounds)
+        local reordered = {}
+        for i = 1, n do reordered[i] = stops[order[i]] end
+        stops = reordered
+        if O.Length(stops, order) > before - 0.1 then break end
+    end
+    -- stops on the straight line between their neighbours aren't needed
+    local i = 1
+    while i <= #stops and #stops > 2 do
+        local n = #stops
+        local a, b = stops[i == 1 and n or i - 1], stops[i % n + 1]
+        if O.SegDist(a, b, stops[i]) < 0.3 then
+            table.remove(stops, i)
+        else
+            i = i + 1
+        end
+    end
+    return stops
 end
 
 -- Where a new point costs least to add to a tour: it goes after tour[at].

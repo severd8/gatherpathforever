@@ -31,6 +31,7 @@ GP.DEFAULTS = {
     minimapButton = true,
     minimapAngle = 200,
     merge = 0,             -- a new route's "merge nodes closer than" (yards)
+    sight = 50,            -- a new route's "pass within" (yards, 0 = go to every node)
     nextColor = 1,
 }
 GP.RANGES = {
@@ -38,6 +39,7 @@ GP.RANGES = {
     minimapWidth = { 1, 8 },
     alpha = { 20, 100 },
     merge = { 0, 60 },
+    sight = { 0, 150 },
 }
 
 -- New routes take these in turn
@@ -286,7 +288,11 @@ function GP:RouteZones()
     return list
 end
 
+-- Stops on the loop (fewer than nodes when nodes are merged or only passed near)
 function GP:NodeCount(route) return floor(#route.points / 2) end
+
+-- Nodes the route takes you past
+function GP:RouteNodes(route) return route.nodes or self:NodeCount(route) end
 
 -- The route's length in yards, round the loop
 function GP:RouteLength(route)
@@ -313,13 +319,14 @@ local function Build(route)
     local pts = {}
     for i, p in ipairs(raw) do pts[i] = { p[1] * w, p[2] * h } end
     local merged = O.Merge(pts, route.merge or 0)
-    local tour = O.Solve(merged)
+    local stops = O.Shortcut(merged, route.sight or 0)
     local flat = {}
-    for _, k in ipairs(tour) do
-        flat[#flat + 1] = Round(merged[k][1] / w)
-        flat[#flat + 1] = Round(merged[k][2] / h)
+    for _, p in ipairs(stops) do
+        flat[#flat + 1] = Round(p[1] / w)
+        flat[#flat + 1] = Round(p[2] / h)
     end
     route.points = flat
+    route.nodes = #raw
     route.length = GP:RouteLength(route)
     return #raw
 end
@@ -388,7 +395,7 @@ local function NameTakenMessage(name, mapID)
         .. "or Rebuild that one."):format(name, GP:MapName(mapID))
 end
 
--- opts: mapID, kinds = { [kind] = { [name] = true } }, name, merge
+-- opts: mapID, kinds = { [kind] = { [name] = true } }, name, merge, sight
 function GP:NewRoute(opts)
     if not self:HasGatherMate() then
         Print("needs GatherMate2, where the nodes come from.")
@@ -416,6 +423,7 @@ function GP:NewRoute(opts)
         name = name,
         kinds = opts.kinds,
         merge = opts.merge or 0,
+        sight = opts.sight or 0,
         color = { unpack(self.COLORS[(self.db.nextColor - 1) % #self.COLORS + 1]) },
         shown = true,
         points = {},
@@ -433,7 +441,7 @@ function GP:NewRoute(opts)
             return
         end
         Print(("made |cffffd100%s|r in %s: %d nodes, %s round."):format(route.name, self:MapName(route.mapID),
-            self:NodeCount(route), self.FormatYards(route.length)))
+            self:RouteNodes(route), self.FormatYards(route.length)))
         self:Changed()
     end)
     return route
@@ -449,15 +457,15 @@ function GP:RebuildRoute(route)
         Print("needs GatherMate2, where the nodes come from.")
         return false
     end
-    local before, oldPoints = self:NodeCount(route), route.points
+    local before, oldPoints, oldNodes = self:RouteNodes(route), route.points, route.nodes
     route.working = true
     return self:RunJob(function() return Build(route) end, function()
         route.working = nil
         if self:NodeCount(route) < 2 then
-            route.points = oldPoints   -- (GatherMate2's data went missing: keep what was there)
+            route.points, route.nodes = oldPoints, oldNodes   -- (GatherMate2's data went missing: keep what was there)
             Print("GatherMate2 has no nodes for " .. route.name .. " now, so it was left as it was.")
         else
-            local after = self:NodeCount(route)
+            local after = self:RouteNodes(route)
             Print(("%s: %d nodes (%s), %s round."):format(route.name, after,
                 after == before and "no change" or ((after > before and "+" or "") .. (after - before)),
                 self.FormatYards(route.length)))
@@ -498,8 +506,8 @@ function GP:SetRouteColor(route, r, g, b)
 end
 
 -- A node GatherMate2 just found goes into each route of its kind on that map,
--- where it adds the least walking. One already there (or within the route's
--- merge distance) is left alone.
+-- where it adds the least walking. One already there (within the route's merge
+-- distance of a stop, or its "pass within" distance of the line) is left alone.
 function GP:AddNode(mapID, kind, x, y, name)
     if not self.db.autoAdd then return 0 end
     local w, h = Yards(mapID)
@@ -507,19 +515,27 @@ function GP:AddNode(mapID, kind, x, y, name)
     for _, route in ipairs(self:RoutesOn(mapID)) do
         if not route.working and route.kinds[kind] and route.kinds[kind][name] then
             local p, n = route.points, self:NodeCount(route)
-            local near = max(route.merge or 0, 5)
+            local near, sight = max(route.merge or 0, 5), route.sight or 0
+            local c = { x * w, y * h }
             local pts, tour, close = {}, {}, false
             for i = 1, n do
                 pts[i] = { p[2 * i - 1] * w, p[2 * i] * h }
                 tour[i] = i
-                local dx, dy = pts[i][1] - x * w, pts[i][2] - y * h
-                if sqrt(dx * dx + dy * dy) <= near then close = true end
+                if O.Dist(pts[i], c) <= near then close = true end
+            end
+            for i = 1, (sight > 0 and n > 1) and n or 0 do
+                if O.SegDist(pts[i], pts[i % n + 1], c) <= sight then close = true end
             end
             if not close then
-                local at = O.BestInsert(pts, tour, { x * w, y * h })
-                table.insert(p, 2 * at + 1, Round(x))
-                table.insert(p, 2 * at + 2, Round(y))
+                local at = O.BestInsert(pts, tour, c)
+                local spot = c
+                if sight > 0 and n > 1 then
+                    spot = O.Place(pts[at], pts[at % n + 1], c, sight)
+                end
+                table.insert(p, 2 * at + 1, Round(spot[1] / w))
+                table.insert(p, 2 * at + 2, Round(spot[2] / h))
                 route.length = self:RouteLength(route)
+                if route.nodes then route.nodes = route.nodes + 1 end
                 added = added + 1
             end
         end
@@ -528,12 +544,14 @@ function GP:AddNode(mapID, kind, x, y, name)
     return added
 end
 
--- A node deleted in GatherMate2 leaves the routes that have it (not merged ones)
+-- A node deleted in GatherMate2 leaves the routes that have it (not merged ones,
+-- nor ones that only pass near their nodes)
 function GP:RemoveNode(mapID, kind, x, y, name)
     local w, h = Yards(mapID)
     local removed = 0
     for _, route in ipairs(self:RoutesOn(mapID)) do
-        if not route.working and route.kinds[kind] and route.kinds[kind][name] and (route.merge or 0) == 0 then
+        if not route.working and route.kinds[kind] and route.kinds[kind][name] and (route.merge or 0) == 0
+            and (route.sight or 0) == 0 then
             local p = route.points
             for i = 1, self:NodeCount(route) do
                 local dx, dy = (p[2 * i - 1] - x) * w, (p[2 * i] - y) * h
@@ -541,6 +559,7 @@ function GP:RemoveNode(mapID, kind, x, y, name)
                     table.remove(p, 2 * i - 1)
                     table.remove(p, 2 * i - 1)
                     route.length = self:RouteLength(route)
+                    if route.nodes then route.nodes = route.nodes - 1 end
                     removed = removed + 1
                     break
                 end
