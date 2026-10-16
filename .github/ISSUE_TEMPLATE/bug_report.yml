@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in GatherPath Forever isn't working
+title: "[Bug] "
+labels: ["bug"]
+assignees: ["severd8"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting! The more detail you give, the faster it gets fixed.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect to see instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can it be reproduced?
+      description: The steps that lead to the problem.
+      placeholder: |
+        1. Made a Peacebloom route in Elwynn Forest
+        2. Opened the world map
+        3. ...
+  - type: input
+    id: zone
+    attributes:
+      label: Zone
+      description: Where the route is.
+      placeholder: Elwynn Forest
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it go wrong?
+      options: ["World map", "Minimap", "The GatherPath window", "Making a route", "Somewhere else"]
+  - type: input
+    id: version
+    attributes:
+      label: Addon version
+      description: Shown in your AddOns list.
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: input
+    id: gm-version
+    attributes:
+      label: GatherMate2 version
+      description: Also in your AddOns list.
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message
+      description: If a Lua error appeared, paste the full text here.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, your game language, other map or minimap addons you use, etc.

@@ -1,0 +1,8 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+	<!-- The world map's route lines: one pin over the whole map (Core.lua) -->
+	<Frame name="GatherPathForeverPinTemplate" mixin="GatherPathForeverPinMixin" virtual="true">
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+</Ui>

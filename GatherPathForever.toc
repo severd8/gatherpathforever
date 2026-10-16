@@ -1,0 +1,17 @@
+## Interface: 16001
+## Title: GatherPath Forever
+## Notes: Draws the shortest gathering route through your GatherMate2 herb and ore nodes on the world map and minimap.
+## Author: severd8
+## Version: @project-version@
+## IconTexture: Interface\AddOns\GatherPathForever\Media\Icon
+## OptionalDeps: GatherMate2
+## SavedVariables: GatherPathForeverDB
+## X-Curse-Project-ID: 1747649
+## X-License: MIT
+## X-Category: Map
+
+Theme.lua
+Optimize.lua
+Core.lua
+Pin.xml
+Options.lua

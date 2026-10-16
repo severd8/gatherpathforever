@@ -1,0 +1,38 @@
+# GatherPath Forever — developer notes
+
+Gathering routes for **World of Warcraft: Forever** (interface 16001): the shortest loop through the herb and ore nodes GatherMate2 has recorded, drawn on the world map and the minimap.
+
+- Author: `severd8`. License: MIT.
+- CurseForge project ID: `1747649` (in the `.toc` as `X-Curse-Project-ID`).
+- Sister addons: TauntMaster Forever, ToppedOff Forever, Outfitter Forever, BattleText Forever. This project's setup mirrors BattleText's.
+- Written from scratch. It does the job of the old Routes addon but uses none of its code (Routes is All Rights Reserved; its TSP.lua is GPL). GatherMate2 (also All Rights Reserved) is only called through its functions and messages at run time, never copied.
+
+## Files
+
+- `GatherPathForever.toc` — `## Version: @project-version@` is filled in by the packager from the git tag. `## OptionalDeps: GatherMate2` so GatherMate2 loads first when it's there. `GatherPathForeverDB` holds the settings and the routes (shared by every character).
+- `Theme.lua` — **the shared look, the same file in all five addons.** Change it in one repo, then copy it to the others. Its `BRANDS` table has a `GatherPathForever` row; the other four repos' copies don't have it yet (harmless: each only needs its own row), so copy this one over next time Theme.lua changes there.
+- `Optimize.lua` — the route solver, plain Lua with no game calls (the tests load it on its own). Points are `{ x, y }` in yards. `O.Solve` starts from the nearest-neighbour tour, then repeats 2-opt (`TwoOpt`, uncrossing legs) and Or-opt (`OrOpt`, moving runs of 1–3 nodes) until neither shortens it. `O.Merge` groups nodes within a radius into their middle (`count` = how many). `O.BestInsert` is the cheapest place for one new node. Every few thousand steps it calls `O.Pause()`, which `GP:RunJob` sets to a coroutine yield.
+- `Core.lua` — settings (`GP.DEFAULTS`, `GP.RANGES`, `LoadSettings` drops broken routes and clamps numbers), GatherMate2 (`EachNode`, `ZoneNodes`, `GatherZones`, `CollectNodes`), routes (`NewRoute`, `RebuildRoute`, `DeleteRoute`, `RenameRoute`, `SetRouteShown`, `SetRouteColor`, `AddNode`, `RemoveNode`), the world map pin and data provider, the minimap lines, the minimap button, `/gpf`, events.
+- `Pin.xml` — `GatherPathForeverPinTemplate`, the world map pin (mixin `GatherPathForeverPinMixin` in Core.lua). Templates for `AcquirePin` have to be XML.
+- `Options.lua` — the window, built with `Theme.Window`: Routes (rows with a color square, a name box, info, Show, Rebuild, Delete), New route (zone dropdown, a switch per kind of node with its count, grouped by kind, name, merge slider, Make route), Display. `GP.ui` keeps the widgets the tests use. `GP:Confirm` is the themed "are you sure" window.
+
+## Routes
+
+- A route: `id`, `mapID`, `name`, `kinds` (`{ [GatherMate2 kind] = { [node name] = true } }`), `merge` (yards, 0 = off), `color` `{r,g,b}`, `shown`, `points` (flat `{ x1, y1, x2, y2, ... }`, map positions 0–1 rounded to 4 places, in loop order), `length` (yards). `working` is set while the solver runs (not drawn, not added to).
+- Yards: `GP:MapYards(mapID)` from `C_Map.GetMapWorldSize`, else the world positions of the map's corners (`C_Map.GetWorldPosFromMapPos`; the world's x runs north, y west). A map the game can't measure is taken as 1500 x 1000 for the solver.
+- Work is spread over frames (`GP:RunJob`): one job at a time, ~10 ms a frame (`debugprofilestop`). 600 nodes is about 3 s of work outside the game.
+- GatherMate2: `GetNodesForZone(mapID, kind, true)` (coord, nodeID), `DecodeLoc(coord)` (x, y), `GetNameForNode(kind, nodeID)`, `db_types`. Zones with data come from its saved variables behind `gmdbs[kind]` (`__gm2_base_storage` and `__gm2_storage_map`). Messages `GatherMate2NodeAdded` / `GatherMate2NodeDeleted` (zone, kind, coord, name) through `GatherMate2.RegisterMessage(listener, ...)`. All calls are in `pcall`.
+- New nodes (`AddNode`, if `db.autoAdd`): into each route on that map with that kind and name, at `O.BestInsert`, unless a node is already within max(merge, 5) yards. Deleted nodes (`RemoveNode`) leave routes without merging, if within 1 yard.
+
+## Drawing
+
+- World map: a data provider (`WorldMapFrame:AddDataProvider`) with one pin the size of the canvas (`DenormalizeHorizontalSize(1)`), frame level type `PIN_FRAME_LEVEL_MAP_HIGHLIGHT`, ignoring the global pin scale. `Pin:Draw` draws the shown routes of the map shown, and of its child zones on a parent map (`C_Map.GetMapRectOnMap`, lines half as wide). Widths are divided by the canvas zoom so they stay the same on screen; `OnCanvasScaleChanged` redraws.
+- Minimap: a frame over `Minimap` with lines, redrawn at most every 0.03 s and only when your position, facing, the zoom (`C_Minimap.GetViewRadius`) or a setting changed. Your position is `C_Map.GetPlayerMapPosition(route.mapID, "player")` (nil off that map: nothing drawn). Pixels per yard = half the minimap's width / view radius. With `rotateMinimap` on, offsets (east, south) turn by `GetPlayerFacing()`: x' = x cos f − y sin f, y' = x sin f + y cos f. Segments are clipped to the circle (`ClipCircle`), or to the square if `GetMinimapShape()` says anything but ROUND (`ClipSquare`).
+- Lines come from pools (`LinePool`): a white texture tinted with `SetVertexColor`, `SetThickness`.
+- Right-click on the minimap button (`ToggleLines`) turns both kinds of line off and remembers which were on (`db.hiddenWas`).
+
+## Tests
+
+`lua5.1 tests/run.lua` (also run by GitHub Actions on every push and before every release). `tests/wowstub.lua` fakes the game: frames take any method, lines remember their points, a world map that makes pins from the mixin, Elwynn Forest in Eastern Kingdoms, and `FakeGatherMate` with nodes and messages. `tests/run_tests.lua` checks the solver (the shortest loop on 8 nodes, a shuffled ring), making routes from the window, world map and minimap lines (positions, rotation, clipping), nodes found and deleted later, renaming, hiding and deleting, saved data, and no GatherMate2.
+
+**Not yet seen in game**: everything (first release). Worth checking first: lines on the world map (layer, width when zoomed), minimap lines lining up with GatherMate2's minimap icons (and turning with a rotating minimap), and `GetMapWorldSize` giving Forever's zone sizes.
