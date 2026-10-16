@@ -10,7 +10,8 @@ local T = ns.Theme
 local C, Text, FlatButton, Card = T.C, T.Text, T.FlatButton, T.Card
 
 local PAGE_W = T.WINDOW.PAGE_W
-local BODY_H = T.WINDOW.BODY_H
+local WINDOW_H = T.WINDOW.H + 120   -- taller than the other addons' windows: room for more nodes
+local BODY_H = T.BodyHeight(WINDOW_H)
 local DROP_X = 52
 local COL2 = 270
 
@@ -295,7 +296,7 @@ local function BuildNew(p, page)
     T.Tooltip(here, "My zone", "Pick the zone you're in.")
     refs.myZone = here
 
-    local LIST_H = 210
+    local LIST_H = 210 + (WINDOW_H - T.WINDOW.H)
     local holder = CreateFrame("Frame", nil, p)
     holder:SetPoint("TOPLEFT", 0, -34)
     holder:SetSize(PAGE_W, LIST_H)
@@ -443,14 +444,15 @@ local function BuildNew(p, page)
                 nh = nh + 1
                 local h = Head(nh)
                 h:ClearAllPoints()
-                h:SetPoint("TOPLEFT", 0, yy - (nh > 1 and 6 or 0))
+                local top = yy - (nh > 1 and 6 or 0)
+                h:SetPoint("TOPLEFT", 0, top - 4)
                 h:SetText(GP:KindName(e.kind):upper())
                 h:Show()
                 h.all:ClearAllPoints()
-                h.all:SetPoint("TOPLEFT", PAGE_W - 30 - 84 - 8, yy - (nh > 1 and 6 or 0) + 3)
+                h.all:SetPoint("TOPLEFT", PAGE_W - 30 - 84 - 8, top)   -- inside the list, not above its top
                 h.all.kind, h.all.entries = e.kind, {}
                 h.all:Show()
-                yy = yy - 22 - (nh > 1 and 6 or 0)
+                yy = top - 24
                 lastKind = e.kind
             end
             local hl = heads[nh].all.entries
@@ -618,6 +620,7 @@ function GP:BuildConfig()
     if self.config then return self.config end
     self.config = T.Window({
         name = "GatherPathForeverConfig",
+        height = WINDOW_H,
         tabs = TABS,
         hint = "/gpf opens this window",
         version = function()

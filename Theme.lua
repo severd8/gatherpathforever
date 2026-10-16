@@ -428,13 +428,16 @@ end
 --   opts.hint     footer text
 --   opts.version  function returning the version shown beside the name
 --   opts.onShow / onHide / onTab(key)   optional
+--   opts.height   optional: taller (or shorter) than T.WINDOW.H; T.BodyHeight(h) is what a page then gets
 -- Returns the window, with .pages[key], .tabButtons[key], :ShowTab(key) and .currentTab
 ---------------------------------------------------------------------------
 T.WINDOW = { W = 740, H = 556, HEADER = 52, FOOTER = 40, SIDE = 170, PAGE_W = 540 }
-T.WINDOW.BODY_H = T.WINDOW.H - T.WINDOW.HEADER - T.WINDOW.FOOTER - 54   -- what's left for a page's content
+-- what's left for a page's content in a window this tall
+function T.BodyHeight(h) return (h or T.WINDOW.H) - T.WINDOW.HEADER - T.WINDOW.FOOTER - 54 end
+T.WINDOW.BODY_H = T.BodyHeight()
 
 function T.Window(opts)
-    local W, H, HEADER, FOOTER, SIDE = T.WINDOW.W, T.WINDOW.H, T.WINDOW.HEADER, T.WINDOW.FOOTER, T.WINDOW.SIDE
+    local W, H, HEADER, FOOTER, SIDE = T.WINDOW.W, opts.height or T.WINDOW.H, T.WINDOW.HEADER, T.WINDOW.FOOTER, T.WINDOW.SIDE
     local win = CreateFrame("Frame", opts.name, UIParent)
     win:SetSize(W, H)
     win:SetPoint("CENTER")

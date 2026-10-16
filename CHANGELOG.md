@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.1
+
+- The **Select all** buttons on **New route** are no longer cut off at the top.
+- The window is taller, so the list of herbs, ore and treasure on **New route** shows about five more rows before you need to scroll, and the **Routes** tab shows more routes.
+
 ## 1.7.0
 
 - **Routes are worked out faster**, so you wait much less on "Working out the shortest loop...": up to six times faster on big routes (hundreds of nodes), about twice as fast with **Route passes within** on. The game still keeps running smoothly meanwhile. Routes also come out a little shorter, usually 2 to 5%.
