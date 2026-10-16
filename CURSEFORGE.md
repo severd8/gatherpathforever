@@ -14,7 +14,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 
 - **Routes from your GatherMate2 nodes.** Pick a zone and the kinds of node you gather (herbs, ore, fishing pools, treasure), and GatherPath finds the shortest loop through all of them.
 - **On the world map**, on the zone's map and thinner on the continent's, and **on the minimap**, round you, turning with it if your minimap turns.
-- **As many routes as you like**, several per zone, each with its own color. Show or hide each one, rename it, or delete it.
+- **As many routes as you like**, several per zone, each with its own color. Show or hide each one, rename it, edit it, or delete it.
 - **Routes that grow.** When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, where it adds the least walking. **Rebuild** reads every node again and finds the loop again.
 - **Merge nearby nodes** into one stop if you like, so the route has fewer turns.
 - **Pass within** a distance of each node instead of right up to it (100 yards to start): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter.
