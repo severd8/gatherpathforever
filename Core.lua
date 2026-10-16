@@ -36,6 +36,8 @@ GP.DEFAULTS = {
     rangeYards = 100,      -- its radius
     rangeAlpha = 60,       -- its opacity (percent)
     rangeColor = { 0.25, 0.80, 1.00 },  -- its color
+    arrows = true,         -- arrows along the lines show which way round to ride
+    arrowsReverse = false, -- and they point the other way
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
     minimapAngle = 200,
@@ -704,6 +706,48 @@ function GP:SetLineColor(where, r, g, b)
     self:Changed()
 end
 
+-- Arrows along a loop whose stops are at xs[i], ys[i] (pixels, in loop order):
+-- one every `spacing` pixels of the way round, the first half a spacing in,
+-- each { x, y, dx, dy } with dx, dy the way to ride (length 1). reverse rides
+-- the loop the other way. Fewer than 3 stops (there and back): none.
+local MAX_ARROWS = 2000
+local function ArrowMarks(xs, ys, n, spacing, reverse)
+    local marks = {}
+    if n < 3 or not (spacing > 0) then return marks end
+    local nextAt, walked = spacing / 2, 0
+    for k = 1, n do
+        local i = reverse and (k == 1 and 1 or n - k + 2) or k
+        local j = reverse and (i == 1 and n or i - 1) or i % n + 1
+        local dx, dy = xs[j] - xs[i], ys[j] - ys[i]
+        local len = sqrt(dx * dx + dy * dy)
+        if len > 0 then
+            while nextAt <= walked + len do
+                local t = (nextAt - walked) / len
+                marks[#marks + 1] = { xs[i] + dx * t, ys[i] + dy * t, dx / len, dy / len }
+                if #marks >= MAX_ARROWS then return marks end
+                nextAt = nextAt + spacing
+            end
+            walked = walked + len
+        end
+    end
+    return marks
+end
+GP.ArrowMarks = ArrowMarks
+
+-- One arrow (a ">" of two lines) centred on x, y, pointing along dx, dy
+local function DrawArrow(pool, rel, point, x, y, dx, dy, size, color, alpha, width)
+    local tx, ty = x + dx * size / 2, y + dy * size / 2
+    local bx, by = tx - dx * size, ty - dy * size
+    local px, py = -dy * size * 0.6, dx * size * 0.6
+    for side = -1, 1, 2 do
+        local line = pool:Get()
+        Paint(line, color, alpha, width)
+        line:SetStartPoint(point, rel, bx + px * side, by + py * side)
+        line:SetEndPoint(point, rel, tx, ty)
+    end
+end
+GP.ARROW_GAP = { world = 80, minimap = 40 }   -- pixels on screen between arrows
+
 ---------------------------------------------------------------------------
 -- World map: one pin over the whole map holds the lines
 ---------------------------------------------------------------------------
@@ -714,6 +758,7 @@ function Pin:OnLoad()
     self:SetIgnoreGlobalPinScale(true)
     self:UseFrameLevelType("PIN_FRAME_LEVEL_MAP_HIGHLIGHT")
     self.pool = LinePool(self, "OVERLAY")
+    self.arrows = LinePool(self, "OVERLAY")
 end
 
 function Pin:OnAcquired()
@@ -743,7 +788,9 @@ GP.Placement = Placement
 function Pin:Draw()
     local pool = self.pool
     if not pool then return end
+    local arrows = self.arrows
     pool:Begin()
+    arrows:Begin()
     local db = GP.db
     local map = self:GetMap()
     local shownMap = map and map:GetMapID()
@@ -760,13 +807,23 @@ function Pin:Draw()
                     -- thinner on a bigger map, where the route is small
                     local width = (own and db.worldWidth or max(1, db.worldWidth * 0.5)) / scale
                     local color = GP:LineColor(route, "world")
+                    local xs, ys = {}, {}
+                    for i = 1, n do
+                        xs[i], ys[i] = (ox + p[2 * i - 1] * sx) * w, -(oy + p[2 * i] * sy) * h
+                    end
                     for i = 1, n do
                         local j = i % n + 1
                         if not (n == 2 and i == 2) then
                             local line = pool:Get()
                             Paint(line, color, alpha, width)
-                            line:SetStartPoint("TOPLEFT", self, (ox + p[2 * i - 1] * sx) * w, -(oy + p[2 * i] * sy) * h)
-                            line:SetEndPoint("TOPLEFT", self, (ox + p[2 * j - 1] * sx) * w, -(oy + p[2 * j] * sy) * h)
+                            line:SetStartPoint("TOPLEFT", self, xs[i], ys[i])
+                            line:SetEndPoint("TOPLEFT", self, xs[j], ys[j])
+                        end
+                    end
+                    if db.arrows then
+                        local size = max(8 / scale, width * 3)
+                        for _, a in ipairs(ArrowMarks(xs, ys, n, GP.ARROW_GAP.world / scale, db.arrowsReverse)) do
+                            DrawArrow(arrows, self, "TOPLEFT", a[1], a[2], a[3], a[4], size, color, alpha, width)
                         end
                     end
                 end
@@ -774,6 +831,7 @@ function Pin:Draw()
         end
     end
     pool:Done()
+    arrows:Done()
 end
 
 local Provider = CreateFromMixins and MapCanvasDataProviderMixin and CreateFromMixins(MapCanvasDataProviderMixin) or {}
@@ -793,6 +851,8 @@ function Provider:RemoveAllData()
     if self.pin and self.pin.pool then
         self.pin.pool:Begin()
         self.pin.pool:Done()
+        self.pin.arrows:Begin()
+        self.pin.arrows:Done()
     end
 end
 
@@ -871,6 +931,7 @@ function GP:SetupMinimap()
     f:SetFrameLevel(Minimap:GetFrameLevel() + 1)
     f.pool = LinePool(f, "ARTWORK")
     f.ring = LinePool(f, "ARTWORK")
+    f.arrows = LinePool(f, "ARTWORK")
     f.wait = 0
     f:SetScript("OnUpdate", function(frame, elapsed)
         frame.wait = frame.wait - elapsed
@@ -924,7 +985,11 @@ function GP:DrawMinimap(force)
     local half = Minimap:GetWidth() / 2
     self:DrawRange(force, radius, half)
     if not (db and db.minimap) then
-        if f.drew then pool:Begin(); pool:Done(); f.drew = false; f.last = nil end
+        if f.drew then
+            pool:Begin(); pool:Done()
+            f.arrows:Begin(); f.arrows:Done()
+            f.drew = false; f.last = nil
+        end
         return
     end
     if not radius or radius <= 0 or half <= 0 then return end
@@ -934,8 +999,8 @@ function GP:DrawMinimap(force)
 
     -- your place on each map that has a route showing
     local mc = db.minimapColor
-    local maps, key = {}, ("%.1f:%.3f:%.1f:%d:%d:%s:%.3f:%.3f:%.3f"):format(radius, facing, half, db.minimapWidth,
-        db.minimapAlpha, tostring(db.minimapRouteColor), mc[1], mc[2], mc[3])
+    local maps, key = {}, ("%.1f:%.3f:%.1f:%d:%d:%s:%.3f:%.3f:%.3f:%s:%s"):format(radius, facing, half, db.minimapWidth,
+        db.minimapAlpha, tostring(db.minimapRouteColor), mc[1], mc[2], mc[3], tostring(db.arrows), tostring(db.arrowsReverse))
     for _, route in ipairs(db.routes) do
         if route.shown and not route.working and maps[route.mapID] == nil then
             local x, y = PlayerPos(route.mapID)
@@ -951,7 +1016,11 @@ function GP:DrawMinimap(force)
     local clip = MinimapIsRound() and ClipCircle or ClipSquare
     local c, s = cos(facing), sin(facing)
     local alpha = db.minimapAlpha / 100
+    local round = MinimapIsRound()
+    local size = max(7, db.minimapWidth * 3)
+    local arrows = f.arrows
     pool:Begin()
+    arrows:Begin()
     for _, route in ipairs(db.routes) do
         local at = maps[route.mapID]
         local n = self:NodeCount(route)
@@ -979,9 +1048,20 @@ function GP:DrawMinimap(force)
                     end
                 end
             end
+            if db.arrows then
+                -- only arrows wholly on the minimap
+                local room = inside - size
+                for _, a in ipairs(ArrowMarks(sx, sy, n, self.ARROW_GAP.minimap, db.arrowsReverse)) do
+                    local x, y = a[1], a[2]
+                    if (round and x * x + y * y <= room * room) or (not round and math.abs(x) <= room and math.abs(y) <= room) then
+                        DrawArrow(arrows, f, "CENTER", x, y, a[3], a[4], size, color, alpha, db.minimapWidth)
+                    end
+                end
+            end
         end
     end
     pool:Done()
+    arrows:Done()
     f.drew = true
 end
 

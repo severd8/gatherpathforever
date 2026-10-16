@@ -695,6 +695,78 @@ Click(ui.minimapRouteColor)
 GP.db.worldAlpha, GP.db.minimapAlpha = 85, 85
 GP:Changed()
 
+STEP("direction arrows")
+-- spacing along the loop, pure: a 100 x 100 square, an arrow every 100 pixels
+local marks = GP.ArrowMarks({ 0, 100, 100, 0 }, { 0, 0, 100, 100 }, 4, 100)
+check(#marks == 4, "one arrow per 100 pixels of the way round")
+check(marks[1][1] == 50 and marks[1][2] == 0 and marks[1][3] == 1 and marks[1][4] == 0, "half a spacing in, pointing along the leg")
+check(marks[2][1] == 100 and marks[2][2] == 50 and marks[2][4] == 1, "then round the corner")
+check(marks[4][1] == 0 and marks[4][2] == 50 and marks[4][4] == -1, "and back to the start")
+marks = GP.ArrowMarks({ 0, 100, 100, 0 }, { 0, 0, 100, 100 }, 4, 100, true)
+check(#marks == 4 and marks[1][1] == 0 and marks[1][2] == 50 and marks[1][4] == 1, "reversed: the other way round")
+check(#GP.ArrowMarks({ 0, 100, 100, 0 }, { 0, 0, 100, 100 }, 4, 40) == 10, "closer together")
+check(#GP.ArrowMarks({ 0, 100 }, { 0, 0 }, 2, 10) == 0, "there and back (two stops): no arrows")
+check(#GP.ArrowMarks({ 0, 0, 0 }, { 0, 0, 0 }, 3, 10) == 0, "stops on top of each other: no arrows")
+
+check(GP.db.arrows == true and GP.db.arrowsReverse == false, "on to start, not reversed")
+check(ui.arrowsSwitch and ui.arrowsReverse, "two switches on Display")
+local herbPoints = herbs.points
+herbs.points = { 0.4, 0.4, 0.6, 0.4, 0.6, 0.7, 0.4, 0.7 }
+local wasShown = {}
+for i, r in ipairs(GP.db.routes) do wasShown[i] = r.shown; r.shown = (r == herbs) end
+WorldMapFrame:SetMapID(E)
+GP:Changed()
+local wa = Shown(pin.arrows)
+check(#wa == 20, "world map: an arrow (two lines) every 80 pixels of an 800-pixel loop")
+check(#Shown(pin.pool) == 4, "and the route's own lines are unchanged")
+-- the first arrow sits 40 pixels along the top edge, pointing east (right)
+check(near(wa[1].__to[1], 440 + 6, 0.01) and near(wa[1].__to[2], -266.8, 0.01), "the tip, ahead of its middle")
+check(near(wa[1].__from[1], 440 - 6, 0.01) and near(math.abs(wa[1].__from[2] + 266.8), 7.2, 0.01), "the wings behind it")
+check(wa[1].__to[1] == wa[2].__to[1] and wa[1].__to[2] == wa[2].__to[2], "two lines meeting at the tip")
+check(wa[1].__color[1] == herbs.color[1] and near(wa[1].__color[4], 0.85) and wa[1].__thickness == 4,
+    "in the line's color, opacity and width")
+Click(ui.arrowsReverse)
+check(GP.db.arrowsReverse == true)
+wa = Shown(pin.arrows)
+-- reversed, the first leg runs from the first stop down the west edge
+check(#wa == 20 and near(wa[1].__to[1], 400, 0.01) and wa[1].__to[2] < wa[1].__from[2], "reversed: pointing down (south)")
+Click(ui.arrowsReverse)
+
+-- minimap: a square 50 yards round you, 23.3 pixels each way
+local a, b = 50 / 1600, 50 / 1066
+herbs.points = { 0.5 - a, 0.5 - b, 0.5 + a, 0.5 - b, 0.5 + a, 0.5 + b, 0.5 - a, 0.5 + b }
+PLAYER.x, PLAYER.y = 0.5, 0.5
+GP:Changed()
+local ma = Shown(GP.mm.arrows)
+local edge = 50 * 70 / 150
+check(#ma == 10, "minimap: an arrow every 40 pixels of a 187-pixel loop")
+check(near(ma[1].__to[1], -edge + 20 + 4.5, 0.01) and near(ma[1].__to[2], edge, 0.01), "the first along the north edge, pointing east")
+check(ma[1].__thickness == 3, "as wide as the minimap's lines")
+for _, l in ipairs(ma) do check(inside(l.__from[1], l.__from[2]) and inside(l.__to[1], l.__to[2]), "inside the minimap") end
+GP.db.arrowsReverse = true
+GP:DrawMinimap()
+ma = Shown(GP.mm.arrows)
+check(near(ma[1].__to[1], -edge, 0.01) and ma[1].__to[2] < ma[1].__from[2], "reversed without forcing a redraw: pointing south")
+GP.db.arrowsReverse = false
+-- an arrow that would stick out past the edge isn't drawn
+herbs.points = { 0.5 - 3 * a, 0.5 - b, 0.5 + 3 * a, 0.5 - b, 0.5, 0.5 + b }
+GP:Changed()
+for _, l in ipairs(Shown(GP.mm.arrows)) do
+    check(inside(l.__from[1], l.__from[2]) and inside(l.__to[1], l.__to[2]), "only arrows wholly on the minimap")
+end
+check(#Shown(GP.mm.arrows) > 0, "the ones inside still are")
+Click(ui.arrowsSwitch)
+check(GP.db.arrows == false and #Shown(GP.mm.arrows) == 0 and #Shown(pin.arrows) == 0, "off: no arrows anywhere")
+check(#Shown(GP.mm.pool) > 0 and #Shown(pin.pool) > 0, "the lines stay")
+Click(ui.arrowsSwitch)
+check(#Shown(GP.mm.arrows) > 0, "back on")
+Click(ui.minimapSwitch)
+check(#Shown(GP.mm.arrows) == 0, "minimap lines off: its arrows go too")
+Click(ui.minimapSwitch)
+herbs.points = herbPoints
+for i, r in ipairs(GP.db.routes) do r.shown = wasShown[i] end
+GP:Changed()
+
 ---------------------------------------------------------------------------
 STEP("saved routes come back, and junk is dropped")
 local saved = GatherPathForeverDB

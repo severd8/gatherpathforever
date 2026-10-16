@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0
+
+- New **direction arrows** along your route lines, on the world map and the minimap, so you can see which way round to ride the loop and never double back by mistake. They take the line's color, opacity and width, and stay the same size as you zoom.
+- On the **Display** tab, the new **Direction arrows** card has **Show arrows** (on to start) to turn them off, and **Reverse direction** to ride every loop the other way.
+- A route with only two stops (there and back) gets no arrows.
+
 ## 1.7.1
 
 - The **Select all** buttons on **New route** are no longer cut off at the top.
