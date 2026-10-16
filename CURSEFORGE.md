@@ -6,6 +6,8 @@ GatherPath Forever takes the herb and ore nodes GatherMate2 has recorded, works 
 
 Needs **GatherMate2** (on CurseForge), which records where you find nodes.
 
+Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/wow/addons/gathermate2-data-wowhead-classic)**. It lets you import Wowhead's herb and ore nodes into GatherMate2, so you can make a full route through a zone before you've gathered it yourself. After installing it, open GatherMate2's options, go to **Import Data** and import the nodes you want.
+
 ---
 
 ## Features

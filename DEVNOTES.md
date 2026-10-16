@@ -5,6 +5,7 @@ Gathering routes for **World of Warcraft: Forever** (interface 16001): the short
 - Author: `severd8`. License: MIT.
 - CurseForge project ID: `1747649` (in the `.toc` as `X-Curse-Project-ID`).
 - Sister addons: TauntMaster Forever, ToppedOff Forever, Outfitter Forever, BattleText Forever. This project's setup mirrors BattleText's.
+- README.md and CURSEFORGE.md recommend GatherMate2 Data (Wowhead Classic) (https://www.curseforge.com/wow/addons/gathermate2-data-wowhead-classic), whose nodes players import through GatherMate2's Import Data options. Nothing in the code depends on it (since 1.0.1).
 - Written from scratch. It does the job of the old Routes addon but uses none of its code (Routes is All Rights Reserved; its TSP.lua is GPL). GatherMate2 (also All Rights Reserved) is only called through its functions and messages at run time, never copied.
 
 ## Files

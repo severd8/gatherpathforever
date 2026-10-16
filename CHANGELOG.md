@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- The description now recommends GatherMate2 Data (Wowhead Classic): import its herb and ore nodes into GatherMate2 to make full routes through a zone before you've gathered it yourself.
+
 ## 1.0.0
 
 - First release.
