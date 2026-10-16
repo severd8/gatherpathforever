@@ -27,8 +27,8 @@ Install it with the CurseForge app, or download the file and unzip it into your 
 ## Using it
 
 1. **Open GatherPath**: type `/gpf`, or left-click the minimap button.
-2. **New route**: click **New route** on the **Routes** tab to start in the zone shown there, or pick the zone (or click **My zone**). Switch on the nodes you want. The number beside each is how many GatherMate2 knows there.
-3. Leave the name blank to have one made from what you picked, or type your own. Click **Make route**.
+2. **New route**: click **New route** on the **Routes** tab to start in the zone shown there, or pick the zone (or click **My zone**). Switch on the nodes you want, or click **Select all** beside a kind (herbs, ore, treasure). The number beside each is how many GatherMate2 knows there.
+3. The name starts with the zone ("The Barrens - "). Type the rest, or leave it to have it made from what you picked. Click **Make route**.
 4. The route shows on the **Routes** tab and on your maps. Follow the line.
 
 - **Edit** a route to change its zone, nodes, name or pass distance; it finds the loop again when you save.
@@ -40,7 +40,7 @@ Install it with the CurseForge app, or download the file and unzip it into your 
 | Tab | What's there |
 |---|---|
 | **Routes** | The routes in a zone: color, name (click to rename), Edit, Rebuild, Delete, nodes, length in yards, show |
-| **New route** | Zone, the nodes GatherMate2 knows there, name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
+| **New route** | Zone, the nodes GatherMate2 knows there (with Select all for each kind), name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
 | **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; add new nodes to routes, minimap button |
 
 ### Commands

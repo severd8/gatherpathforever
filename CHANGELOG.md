@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.0
+
+- **Select all** beside each kind of node on **New route** (Herbs, Ore, Treasure and so on) switches on every node of that kind. Click it again (it then reads **Clear all**) to switch them all off.
+- The **Name** box on New route now starts with the zone, for example "The Barrens - ". Type the rest, or leave it and the rest is made from the nodes you picked, shown in grey until you do. Change the zone and the name follows, unless you've typed your own.
+
 ## 1.5.0
 
 - New on the **Display** tab: the world map and the minimap each get their own **opacity** slider (they used to share one), so you can keep a bold line on the world map and a faint one on the minimap, or the other way round. Your old opacity is kept for both.

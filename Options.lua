@@ -244,16 +244,26 @@ end
 -- from a route (EditInWindow) and Save changes that route.
 local newZone, picked, newSight, editing = nil, {}, nil, nil
 local nameBox
+local prefixZone   -- the zone whose "Zone - " the name box was started with
+
+-- A new route's name starts with its zone: "The Barrens - "
+local function Prefix(mapID) return mapID and (GP:MapName(mapID) .. " - ") or "" end
+local function Trim(text) return (text or ""):match("^%s*(.-)%s*$") end
+-- Only the zone (or nothing) typed: the rest is made from the nodes picked
+local function OnlyPrefix(text, mapID)
+    local t = Trim(text)
+    return t == "" or (mapID and t == Trim(Prefix(mapID)))
+end
 
 local function Sight() return newSight or GP.DEFAULTS.sight end
 
 local function ResetNew()
-    newZone, picked, newSight, editing = nil, {}, nil, nil
+    newZone, picked, newSight, editing, prefixZone = nil, {}, nil, nil, nil
     if nameBox then nameBox:SetText(""); nameBox:ClearFocus() end
 end
 
 local function EditInWindow(route)
-    newZone, newSight, editing = route.mapID, route.sight or 0, route
+    newZone, newSight, editing, prefixZone = route.mapID, route.sight or 0, route, route.mapID
     picked = {}
     for kind, names in pairs(route.kinds) do
         for n in pairs(names) do
@@ -300,6 +310,7 @@ local function BuildNew(p, page)
     refs.newNote = note
     local heads, switches = {}, {}
     refs.kindSwitches = switches
+    refs.kindHeads = heads
 
     -- below the list: name, passes within, make (or save and cancel)
     local y = -34 - LIST_H - 14
@@ -307,12 +318,26 @@ local function BuildNew(p, page)
     local name = T.EditBox(p, 300)
     name:SetPoint("TOPLEFT", DROP_X, y)
     nameBox = name
+    -- grey hint after the zone: the rest of the name, made from what's picked
     local hint = Text(name, "", "GameFontDisableSmall")
-    hint:SetPoint("LEFT", 6, 0)
+    local measure = Text(name, "", "GameFontHighlightSmall")
+    measure:Hide()
+    local function ShowHint()
+        local text = name:GetText()
+        local on = not name:HasFocus() and OnlyPrefix(text, newZone)
+        if on then
+            measure:SetText(text)
+            local w = measure:GetStringWidth()
+            hint:ClearAllPoints()
+            hint:SetPoint("LEFT", 6 + (type(w) == "number" and w or 0), 0)
+        end
+        hint:SetShown(on)
+    end
     name:SetScript("OnEditFocusGained", function() hint:Hide() end)
-    name:SetScript("OnEditFocusLost", function(self) hint:SetShown(self:GetText() == "") end)
-    name:SetScript("OnTextChanged", function(self) hint:SetShown(self:GetText() == "" and not self:HasFocus()) end)
+    name:SetScript("OnEditFocusLost", ShowHint)
+    name:SetScript("OnTextChanged", ShowHint)
     refs.newName = name
+    refs.newHint = hint
 
     local sight = T.Slider(p, "Route passes within", 0, y - 36, 300, Sight,
         function(v) newSight = v end,
@@ -338,7 +363,9 @@ local function BuildNew(p, page)
                 end
             end
         end
-        local opts = { mapID = newZone, kinds = kinds, name = name:GetText(), sight = Sight() }
+        local typed = name:GetText()
+        if OnlyPrefix(typed, newZone) then typed = Prefix(newZone) .. GP:RouteName(newZone, kinds) end
+        local opts = { mapID = newZone, kinds = kinds, name = typed, sight = Sight() }
         local route
         if editing then
             route = GP:EditRoute(editing, opts) and editing
@@ -364,10 +391,23 @@ local function BuildNew(p, page)
     T.Tooltip(cancel, "Cancel", "Leave the route as it was.")
     refs.cancelButton = cancel
 
+    -- a kind's heading, with Select all (Clear all once every node of it is on)
     local function Head(i)
         if heads[i] then return heads[i] end
-        heads[i] = Text(list, "", "GameFontNormalSmall", C.orange)
-        return heads[i]
+        local h = Text(list, "", "GameFontNormalSmall", C.orange)
+        local all = FlatButton(list, "Select all", 84, 18)
+        all:SetScript("OnClick", function(self)
+            local kind, entries = self.kind, self.entries
+            if not kind then return end
+            local on = not self.allOn
+            picked[kind] = picked[kind] or {}
+            for _, e in ipairs(entries) do picked[kind][e.name] = on or nil end
+            GP:RefreshConfig()
+        end)
+        T.Tooltip(all, "Select all", "Switch on every node of this kind (click again to switch them all off).")
+        h.all = all
+        heads[i] = h
+        return h
     end
     local function Switch(i)
         if switches[i] then return switches[i] end
@@ -406,9 +446,15 @@ local function BuildNew(p, page)
                 h:SetPoint("TOPLEFT", 0, yy - (nh > 1 and 6 or 0))
                 h:SetText(GP:KindName(e.kind):upper())
                 h:Show()
+                h.all:ClearAllPoints()
+                h.all:SetPoint("TOPLEFT", PAGE_W - 30 - 84 - 8, yy - (nh > 1 and 6 or 0) + 3)
+                h.all.kind, h.all.entries = e.kind, {}
+                h.all:Show()
                 yy = yy - 22 - (nh > 1 and 6 or 0)
                 lastKind = e.kind
             end
+            local hl = heads[nh].all.entries
+            hl[#hl + 1] = e
             ns_ = ns_ + 1
             local sw = Switch(ns_)
             sw.entry = e
@@ -423,7 +469,15 @@ local function BuildNew(p, page)
             col = 1 - col
         end
         if col == 1 then yy = yy - 26 end
-        for i = nh + 1, #heads do heads[i]:Hide() end
+        for i = 1, nh do
+            local b = heads[i].all
+            b.allOn = true
+            for _, e in ipairs(b.entries) do
+                if not (picked[b.kind] and picked[b.kind][e.name]) then b.allOn = false end
+            end
+            b:SetText(b.allOn and "Clear all" or "Select all")
+        end
+        for i = nh + 1, #heads do heads[i]:Hide(); heads[i].all:Hide(); heads[i].all.kind = nil end
         for i = ns_ + 1, #switches do switches[i]:Hide(); switches[i].label:Hide(); switches[i].entry = nil end
         scroll:SetContent(PAGE_W - 30, math.max(1, -yy), true)
 
@@ -443,8 +497,17 @@ local function BuildNew(p, page)
         for _, names in pairs(picked) do if next(names) then any = true end end
         local kinds = {}
         for kind, names in pairs(picked) do if next(names) then kinds[kind] = names end end
-        hint:SetText(any and ("Name: " .. GP:RouteName(newZone, kinds)) or "Name (made from what you pick)")
-        hint:SetShown(name:GetText() == "" and not name:HasFocus())
+        -- start the name with the zone, and follow a zone change while only that's there
+        if not editing and newZone ~= prefixZone then
+            if OnlyPrefix(name:GetText(), prefixZone) then name:SetText(Prefix(newZone)) end
+            prefixZone = newZone
+        end
+        if newZone then
+            hint:SetText(any and GP:RouteName(newZone, kinds) or "(made from what you pick)")
+        else
+            hint:SetText("Name (made from what you pick)")
+        end
+        ShowHint()
         make:SetDisabled(not any or GP:Busy())
         make:SetText(GP:Busy() and "Working..." or editing and "Save changes" or "Make route")
         cancel:SetShown(editing ~= nil)

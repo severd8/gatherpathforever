@@ -217,22 +217,46 @@ GP:OpenConfig("routes")
 ui.routesZone.Choose(E)
 Click(ui.routesNew)
 check(GP.config.currentTab == "new" and ui.newZone.getter() == E, "New route on Routes starts on the zone picked there")
-check(not SwitchFor("Peacebloom"):IsOn() and ui.newName:GetText() == "" and ui.sightSlider:GetValue() == 100,
-    "the rest blank")
+check(not SwitchFor("Peacebloom"):IsOn() and ui.newName:GetText() == "Elwynn Forest - " and ui.sightSlider:GetValue() == 100,
+    "the rest blank, the name started with the zone")
 GP.config.tabButtons.new:GetScript("OnClick")()
 check(ui.newZone.getter() == nil, "the New route tab itself still starts with no zone")
+check(ui.newName:GetText() == "" and ui.newHint:IsShown(), "no zone, no name yet")
 Click(ui.myZone)
+check(ui.newName:GetText() == "Elwynn Forest - ", "the name starts with the zone")
+ui.newZone.Choose(W)
+check(ui.newName:GetText() == "Westfall - ", "and follows a zone change")
+ui.newName:SetText("Westfall - mine")
+ui.newZone.Choose(E)
+check(ui.newZone.getter() == E and ui.newName:GetText() == "Westfall - mine", "but not over a name you typed")
+ui.newName:SetText("Elwynn Forest - ")
+
+STEP("Select all")
+local herbHead
+for _, h in ipairs(ui.kindHeads) do if h:IsShown() and h:GetText() == "HERBS" then herbHead = h end end
+check(herbHead and herbHead.all:IsShown() and herbHead.all:GetText() == "Select all", "a Select all by each kind")
+Click(herbHead.all)
+check(SwitchFor("Peacebloom"):IsOn() and SwitchFor("Silverleaf"):IsOn() and not SwitchFor("Copper Vein"):IsOn(),
+    "switches on every node of that kind, no other")
+check(herbHead.all:GetText() == "Clear all", "then reads Clear all")
+Click(herbHead.all)
+check(not SwitchFor("Peacebloom"):IsOn() and not SwitchFor("Silverleaf"):IsOn(), "which switches them off")
+check(herbHead.all:GetText() == "Select all")
+check(ui.makeButton.disabled, "nothing picked again")
+
+STEP("make a route from the window, named after its zone")
 Click(SwitchFor("Peacebloom"))
 Click(SwitchFor("Silverleaf"))
+check(ui.newHint:IsShown() and ui.newHint:GetText() == "Peacebloom and Silverleaf", "the rest of the name greyed after the zone")
 ui.sightSlider:SetValue(0)
 Click(ui.makeButton)
 check(GP:Busy(), "working it out over a few frames")
 check(GP.config.currentTab == "routes", "then shows the routes")
 RunJobs()
 local route = GP.db.routes[1]
-check(#GP.db.routes == 1 and route.name == "Peacebloom and Silverleaf", "named from what was picked")
+check(#GP.db.routes == 1 and route.name == "Elwynn Forest - Peacebloom and Silverleaf", "named from the zone and what was picked")
 check(GP:NodeCount(route) == 7, "7 nodes")
-check(logHas("made |cffffd100Peacebloom and Silverleaf|r in Elwynn Forest: 7 nodes"), "says so in chat")
+check(logHas("made |cffffd100Elwynn Forest - Peacebloom and Silverleaf|r in Elwynn Forest: 7 nodes"), "says so in chat")
 check(route.shown and route.color and route.mapID == E)
 -- the length is the loop's, in yards
 local pts, tour = {}, {}
@@ -372,7 +396,7 @@ PLAYER.map = E
 GP.db.routes[2].shown = true
 GP:RebuildRoute(route)
 RunJobs()
-check(GP:NodeCount(route) == 7 and logHas("Peacebloom and Silverleaf: 7 nodes"), "Rebuild reads the nodes again")
+check(GP:NodeCount(route) == 7 and logHas("Elwynn Forest - Peacebloom and Silverleaf: 7 nodes"), "Rebuild reads the nodes again")
 
 ---------------------------------------------------------------------------
 STEP("nodes GatherMate2 finds later")
@@ -509,7 +533,7 @@ Click(SwitchFor("Silverleaf"))
 ui.sightSlider:SetValue(0)
 Click(ui.makeButton)
 RunJobs()
-check(route.name == "Peacebloom and Silverleaf" and GP:NodeCount(route) == #GP:CollectNodes(E, route.kinds),
+check(route.name == "Elwynn Forest - Peacebloom and Silverleaf" and GP:NodeCount(route) == #GP:CollectNodes(E, route.kinds),
     "a blank name is made from the nodes")
 check(GP:EditRoute(route, { kinds = route.kinds, name = "Elwynn herbs", sight = 0 }))
 RunJobs()
