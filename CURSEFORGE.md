@@ -18,7 +18,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **Skip list** for nodes you never want, like Poor Copper Ore or Wilted Peacebloom: right-click one on the New route tab and no route uses it, in any zone.
 - **Taboo areas**: draw an area on the world map, like the mountains in Eastern Plaguelands, and your routes stay out of it. Nodes inside it are left out, and the line goes round it instead of over it.
 - **Routes that grow.** When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, where it adds the least walking. **Rebuild** reads every node again and finds the loop again.
-- **Route passes within** a distance of each node instead of right up to it (100 yards to start): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter, and nodes close together become one stop.
+- **Route passes within** a distance of each node instead of right up to it (185 yards to start, up to 200): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter, and nodes close together become one stop.
 - **Direction arrows** along the lines on both maps show which way round to ride each loop. Reverse them or turn them off on the Display tab.
 - **Line to the route** on the minimap: when you are off your route, a dashed line points from you to its nearest point, so you know where to join it.
 - **Time for a lap**: each route shows about how long one lap takes at your mount's speed (remembered from the last time you rode).

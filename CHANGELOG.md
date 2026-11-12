@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.12.1
+
+- **Route passes within** now goes up to **200 yards** (it stopped at 150), and moves in steps of 5.
+- New routes start at **185 yards**, about as far as Find Herbs and Find Minerals show nodes on the minimap, so routes cut more corners and come out shorter. Thanks to Raz87 for the suggestion.
+- Routes you already made keep their own distance. Click **Edit** on one and **Save changes** at a new distance to rework it.
+
 ## 1.12.0
 
 - New **taboo areas**: parts of a zone your routes stay out of, like the mountains in Eastern Plaguelands. Nodes inside a taboo area are left out, and a route's line goes **round** the area instead of straight over it.

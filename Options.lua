@@ -344,7 +344,7 @@ local function BuildNew(p, page)
 
     local sight = T.Slider(p, "Route passes within", 0, y - 36, 300, Sight,
         function(v) newSight = v end,
-        GP.RANGES.sight[1], GP.RANGES.sight[2], " yards", 10, nil, "Off")
+        GP.RANGES.sight[1], GP.RANGES.sight[2], " yards", 5, nil, "Off")
     T.Tooltip(sight, "Route passes within",
         "With Find Herbs or Find Minerals on, you see a node on the minimap before you reach it. "
         .. "The route only has to come this close to each node, so it cuts corners and is shorter, "

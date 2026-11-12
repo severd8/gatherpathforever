@@ -43,7 +43,7 @@ GP.DEFAULTS = {
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
     minimapAngle = 200,
-    sight = 100,           -- where New route's "route passes within" starts (yards, 0 = go to every node)
+    sight = 185,           -- where New route's "route passes within" starts (yards, 0 = go to every node)
     nextColor = 1,
 }
 -- The settings on the Display tab, which its Restore defaults button puts back
@@ -62,7 +62,7 @@ GP.RANGES = {
     minimapAlpha = { 10, 100 },
     rangeYards = { 20, 200 },
     rangeAlpha = { 10, 100 },
-    sight = { 0, 150 },
+    sight = { 0, 200 },
 }
 
 -- New routes take these in turn
