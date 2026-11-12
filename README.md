@@ -26,7 +26,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **Time for a lap**: each route shows about how long one lap takes at your mount's speed (remembered from the last time you rode).
 - **Range circle** on the minimap (off to start): a ring round you, 100 yards to start, as far as Find Herbs and Find Minerals show nodes. Pick its color, opacity and size.
 - **Your look**: line width, opacity and color, set apart for the world map and the minimap. Lines use each route's own color, or one color you pick for every route.
-- The same look as TauntMaster Forever, ToppedOff Forever, Outfitter Forever and BattleText Forever.
+- The same look as TauntMaster Forever, ToppedOff Forever, BattleText Forever, AuctionHouse Forever, Outfitter Forever and ARS Forever.
 
 ## Installation
 
@@ -71,6 +71,16 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - A route goes where your nodes are. The more of a zone you've gathered (or imported into GatherMate2), the better the route.
 - The loop is as short as GatherPath can find quickly. A big route (hundreds of nodes) takes a few seconds to work out; the game keeps running meanwhile.
 - Lengths are in yards, round the whole loop.
+
+## All addons by me
+
+- **TauntMaster Forever**: one-click taunts off your healers and DPS, for tanks.
+- **ToppedOff Forever**: reminds you when buffs, food, reagents, ammo or gear need topping off.
+- **Outfitter Forever**: save your gear as outfits and switch between them with one click, or let them change by themselves.
+- **BattleText Forever**: scrolling combat text for your hits, heals and the damage you take.
+- **AuctionHouse Forever**: a bigger Auction House window, so long item names stop getting cut off.
+- **GatherPath Forever**: the shortest gathering route through your GatherMate2 herb and ore nodes, on the world map and minimap.
+- **ARS Forever** (Azeroth Revenue Service): see how much gold a player has made and the most they've ever held, for you and anyone you inspect.
 
 ## Feedback
 
