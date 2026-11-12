@@ -17,6 +17,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **Routes from your GatherMate2 nodes.** Pick a zone and the kinds of node you gather (herbs, ore, fishing pools, treasure), and GatherPath finds the shortest loop through all of them.
 - **On the world map**, on the zone's map and thinner on the continent's, and **on the minimap**, round you, turning with it if your minimap turns.
 - **As many routes as you like**, several per zone, each with its own color. Show or hide each one, rename it, edit it, or delete it.
+- **Skip list** for nodes you never want, like Poor Copper Ore or Wilted Peacebloom: right-click one on the New route tab and no route uses it, in any zone.
 - **Routes that grow.** When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, where it adds the least walking. **Rebuild** reads every node again and finds the loop again.
 - **Route passes within** a distance of each node instead of right up to it (100 yards to start): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter, and nodes close together become one stop.
 - **Direction arrows** along the lines on both maps show which way round to ride each loop. Reverse them or turn them off on the Display tab.
@@ -41,6 +42,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 4. The route shows on the **Routes** tab and on your maps. Follow the line.
 
 - **Edit** a route to change its zone, nodes, name or pass distance; it finds the loop again when you save.
+- **Skip a node everywhere**: right-click it on the **New route** tab (Poor Copper Ore, Wilted Peacebloom...). It stays off, **Select all** leaves it out, new ones don't join your routes, and routes that had it drop it when you **Rebuild** them. Right-click it again (or click it) to stop skipping it. `/gpf skipped` lists them.
 - **Rebuild** a route after gathering more of a zone, so it takes in every node GatherMate2 knows now.
 - **Hide every line for a while**: right-click the minimap button, or type `/gpf hide` (and `/gpf show`).
 
@@ -49,7 +51,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 | Tab | What's there |
 |---|---|
 | **Routes** | The routes in a zone: color, name (click to rename), Edit, Rebuild, Delete, nodes, length in yards, time for a lap, show |
-| **New route** | Zone, the nodes GatherMate2 knows there (with Select all for each kind), name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
+| **New route** | Zone, the nodes GatherMate2 knows there (with Select all for each kind; right-click one to skip it), name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
 | **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; direction arrows (on or off, reversed), line to the route; the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button; Restore defaults puts them all back |
 
 ### Commands
@@ -59,6 +61,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 | `/gpf` | Open or close the window |
 | `/gpf new` | Open the New route tab |
 | `/gpf hide`, `/gpf show` | Hide or show every line |
+| `/gpf skipped` | List the nodes on your skip list |
 
 ## Good to know
 

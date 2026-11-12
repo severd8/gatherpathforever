@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.11.0
+
+- New **skip list** for nodes you never want in a route, like Poor Copper Ore or Wilted Peacebloom. On the **New route** tab, **right-click** a node to skip it: it's greyed out and marked "skipped", **Select all** leaves it out, and it's skipped in every zone and every route.
+- New nodes of a skipped kind don't join your routes, and routes that already had it drop it the next time you **Rebuild** or **Edit** them.
+- Right-click it again, or just click it, to stop skipping it. Type **/gpf skipped** to see the list.
+
 ## 1.10.0
 
 - New **Restore defaults** button at the bottom of the **Display** tab. It puts every setting on that tab back as it was when you first installed GatherPath: line width, opacity and color on both maps, direction arrows, the line to the route, the range circle, adding new nodes and the minimap button. It asks first, and your routes are kept.

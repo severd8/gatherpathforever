@@ -112,6 +112,14 @@ function GP:LoadSettings()
         if type(db[k]) ~= "number" then db[k] = self.DEFAULTS[k] end
         db[k] = max(r[1], min(r[2], db[k]))
     end
+    -- node names left out of every route (the skip list): { [name] = true }
+    local skip = {}
+    if type(db.skip) == "table" then
+        for name, on in pairs(db.skip) do
+            if type(name) == "string" and on == true then skip[name] = true end
+        end
+    end
+    db.skip = skip
     db.routes = type(db.routes) == "table" and db.routes or {}
     db.nextID = db.nextID or 1
     -- drop anything that isn't a usable route
@@ -230,7 +238,25 @@ function GP:EachNode(mapID, kind, fn)
     end)
 end
 
--- What GatherMate2 knows on a map: { { kind =, name =, count = }, ... }, by kind then name
+-- The skip list: node names (Poor Copper Ore, Wilted Peacebloom...) that no
+-- route uses, in any zone. Routes that had one drop it when they're rebuilt.
+function GP:IsSkipped(name) return self.db.skip[name] == true end
+
+function GP:SetSkipped(name, on)
+    if type(name) ~= "string" then return end
+    self.db.skip[name] = on and true or nil
+    self:Changed()
+end
+
+-- The skipped names, sorted
+function GP:SkippedNames()
+    local list = {}
+    for name in pairs(self.db.skip) do list[#list + 1] = name end
+    table.sort(list)
+    return list
+end
+
+-- What GatherMate2 knows on a map: { { kind =, name =, count =, skip = }, ... }, by kind then name
 function GP:ZoneNodes(mapID)
     local list = {}
     for _, kind in ipairs(self:Kinds()) do
@@ -240,7 +266,7 @@ function GP:ZoneNodes(mapID)
         for name in pairs(counts) do names[#names + 1] = name end
         table.sort(names)
         for _, name in ipairs(names) do
-            list[#list + 1] = { kind = kind, name = name, count = counts[name] }
+            list[#list + 1] = { kind = kind, name = name, count = counts[name], skip = self:IsSkipped(name) }
         end
     end
     return list
@@ -280,12 +306,13 @@ function GP:GatherZones()
     return list
 end
 
--- The nodes a route is made from, as { x, y } map positions
+-- The nodes a route is made from, as { x, y } map positions (none on the skip list)
 function GP:CollectNodes(mapID, kinds)
     local pts = {}
+    local skip = self.db.skip
     for kind, names in pairs(kinds) do
         self:EachNode(mapID, kind, function(x, y, name)
-            if names[name] then pts[#pts + 1] = { x, y } end
+            if names[name] and not skip[name] then pts[#pts + 1] = { x, y } end
         end)
     end
     -- the same order every time, whatever order GatherMate2 gives them in
@@ -298,12 +325,16 @@ function GP:RouteName(mapID, kinds)
     local names, whole = {}, {}
     local all = self:ZoneNodes(mapID)
     local perKind = {}
-    for _, n in ipairs(all) do perKind[n.kind] = (perKind[n.kind] or 0) + 1 end
+    for _, n in ipairs(all) do
+        if not n.skip then perKind[n.kind] = (perKind[n.kind] or 0) + 1 end
+    end
     for _, kind in ipairs(self:Kinds()) do
         local picked = kinds[kind]
         if picked and next(picked) then
             local list = {}
-            for name in pairs(picked) do list[#list + 1] = name end
+            for name in pairs(picked) do
+                if not self:IsSkipped(name) then list[#list + 1] = name end
+            end
             table.sort(list)
             if #list > 2 and #list >= (perKind[kind] or 0) then
                 whole[#whole + 1] = self:KindName(kind)
@@ -479,15 +510,23 @@ local function NameTakenMessage(name, mapID)
         .. "or Rebuild that one."):format(name, GP:MapName(mapID))
 end
 
+-- Is any node picked in kinds ({ [kind] = { [name] = true } }) that isn't skipped?
+function GP:AnyPicked(kinds)
+    for _, names in pairs(kinds or {}) do
+        for name, on in pairs(names) do
+            if on and not self:IsSkipped(name) then return true end
+        end
+    end
+    return false
+end
+
 -- opts: mapID, kinds = { [kind] = { [name] = true } }, name, sight
 function GP:NewRoute(opts)
     if not self:HasGatherMate() then
         Print("needs GatherMate2, where the nodes come from.")
         return nil
     end
-    local any = false
-    for _, names in pairs(opts.kinds or {}) do if next(names) then any = true end end
-    if not any then
+    if not self:AnyPicked(opts.kinds) then
         Print("pick at least one kind of node.")
         return nil
     end
@@ -564,9 +603,7 @@ function GP:EditRoute(route, opts)
         Print("needs GatherMate2, where the nodes come from.")
         return false
     end
-    local any = false
-    for _, names in pairs(opts.kinds or {}) do if next(names) then any = true end end
-    if not any then
+    if not self:AnyPicked(opts.kinds) then
         Print("pick at least one kind of node.")
         return false
     end
@@ -636,7 +673,7 @@ end
 -- where it adds the least walking. One already there (within 5 yards of a stop,
 -- or its "route passes within" distance of the line) is left alone.
 function GP:AddNode(mapID, kind, x, y, name)
-    if not self.db.autoAdd then return 0 end
+    if not self.db.autoAdd or self:IsSkipped(name) then return 0 end
     local w, h = Yards(mapID)
     local added = 0
     for _, route in ipairs(self:RoutesOn(mapID)) do
@@ -1277,6 +1314,7 @@ local function Help()
     print("  |cffffd100/gpf|r  routes and options")
     print("  |cffffd100/gpf new|r  make a new route")
     print("  |cffffd100/gpf show|r, |cffffd100/gpf hide|r  show or hide all the lines")
+    print("  |cffffd100/gpf skipped|r  the nodes on your skip list")
 end
 
 SLASH_GATHERPATHFOREVER1 = "/gpf"
@@ -1287,6 +1325,13 @@ SlashCmdList.GATHERPATHFOREVER = function(msg)
         GP:OpenConfig()
     elseif cmd == "new" then
         GP:OpenConfig("new")
+    elseif cmd == "skipped" or cmd == "skip" then
+        local list = GP:SkippedNames()
+        if #list == 0 then
+            Print("no nodes are skipped. Right-click a node on the New route tab to skip it in every route.")
+        else
+            Print("skipped (right-click one on the New route tab to stop skipping it): " .. table.concat(list, ", "))
+        end
     elseif cmd == "show" or cmd == "hide" then
         local on = cmd == "show"
         if (GP.db.worldMap or GP.db.minimap) ~= on then GP:ToggleLines() end

@@ -360,7 +360,7 @@ local function BuildNew(p, page)
         local kinds = {}
         for kind, names in pairs(picked) do
             for n, on in pairs(names) do
-                if on then
+                if on and not GP:IsSkipped(n) then
                     kinds[kind] = kinds[kind] or {}
                     kinds[kind][n] = true
                 end
@@ -404,10 +404,13 @@ local function BuildNew(p, page)
             if not kind then return end
             local on = not self.allOn
             picked[kind] = picked[kind] or {}
-            for _, e in ipairs(entries) do picked[kind][e.name] = on or nil end
+            for _, e in ipairs(entries) do
+                if not e.skip then picked[kind][e.name] = on or nil end
+            end
             GP:RefreshConfig()
         end)
-        T.Tooltip(all, "Select all", "Switch on every node of this kind (click again to switch them all off).")
+        T.Tooltip(all, "Select all", "Switch on every node of this kind (click again to switch them all off). "
+            .. "Nodes on your skip list stay off.")
         h.all = all
         heads[i] = h
         return h
@@ -415,13 +418,31 @@ local function BuildNew(p, page)
     local function Switch(i)
         if switches[i] then return switches[i] end
         local sw = T.LabeledSwitch(list, "", 0, 0, 200)
-        sw:SetScript("OnClick", function(self)
+        sw:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        sw:SetScript("OnClick", function(self, button)
             local e = self.entry
             if not e then return end
             picked[e.kind] = picked[e.kind] or {}
-            picked[e.kind][e.name] = not self:IsOn() or nil
+            if button == "RightButton" then
+                -- on or off the skip list (in every zone)
+                local skip = not GP:IsSkipped(e.name)
+                if skip then picked[e.kind][e.name] = nil end
+                GP:SetSkipped(e.name, skip)
+                GP.Print(skip and ("|cffffd100%s|r is skipped: no route uses it. Routes that had it drop it when "
+                    .. "you Rebuild them. Right-click it again to stop skipping it."):format(e.name)
+                    or ("|cffffd100%s|r is no longer skipped."):format(e.name))
+                return
+            end
+            if GP:IsSkipped(e.name) then
+                GP:SetSkipped(e.name, false)   -- clicking a skipped node takes it off the list and picks it
+                picked[e.kind][e.name] = true
+            else
+                picked[e.kind][e.name] = not self:IsOn() or nil
+            end
             GP:RefreshConfig()
         end)
+        T.Tooltip(sw, nil, "Click to put this node in the route. Right-click to skip it everywhere "
+            .. "(for poor or wilted nodes): Select all, new nodes and rebuilt routes leave it out.")
         switches[i] = sw
         return sw
     end
@@ -464,9 +485,13 @@ local function BuildNew(p, page)
             sw.entry = e
             sw:ClearAllPoints()
             sw:SetPoint("TOPLEFT", col == 0 and 0 or COL2 - 10, yy)
-            sw.label:SetText(("%s |cff8a8070(%d)|r"):format(e.name, e.count))
+            if e.skip then
+                sw.label:SetText(("|cff8a8070%s (%d) - skipped|r"):format(e.name, e.count))
+            else
+                sw.label:SetText(("%s |cff8a8070(%d)|r"):format(e.name, e.count))
+            end
             T.ClickableLabel(sw, sw.label)
-            sw:SetOn(picked[e.kind] and picked[e.kind][e.name] or false)
+            sw:SetOn(not e.skip and picked[e.kind] and picked[e.kind][e.name] or false)
             sw:Show()
             sw.label:Show()
             if col == 1 then yy = yy - 26 end
@@ -477,7 +502,7 @@ local function BuildNew(p, page)
             local b = heads[i].all
             b.allOn = true
             for _, e in ipairs(b.entries) do
-                if not (picked[b.kind] and picked[b.kind][e.name]) then b.allOn = false end
+                if not e.skip and not (picked[b.kind] and picked[b.kind][e.name]) then b.allOn = false end
             end
             b:SetText(b.allOn and "Clear all" or "Select all")
         end
@@ -497,8 +522,7 @@ local function BuildNew(p, page)
             note:SetText("")
         end
 
-        local any = false
-        for _, names in pairs(picked) do if next(names) then any = true end end
+        local any = GP:AnyPicked(picked)
         local kinds = {}
         for kind, names in pairs(picked) do if next(names) then kinds[kind] = names end end
         -- start the name with the zone, and follow a zone change while only that's there

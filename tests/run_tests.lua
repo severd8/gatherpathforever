@@ -474,6 +474,63 @@ check(GP:NodeCount(route) == 7, "Add new nodes off")
 GP.db.autoAdd = true
 
 ---------------------------------------------------------------------------
+STEP("skip list")
+GP:OpenConfig("new")
+Click(ui.myZone)
+check(not GP:IsSkipped("Silverleaf") and #GP:SkippedNames() == 0, "nothing skipped to start")
+Click(SwitchFor("Silverleaf"))
+check(SwitchFor("Silverleaf"):IsOn())
+Click(SwitchFor("Silverleaf"), "RightButton")
+check(GP:IsSkipped("Silverleaf") and GP.db.skip.Silverleaf == true, "right-click puts it on the skip list")
+check(logHas("|cffffd100Silverleaf|r is skipped"), "says so in chat")
+check(not SwitchFor("Silverleaf"):IsOn() and SwitchFor("Silverleaf").label:GetText():find("skipped", 1, true),
+    "shown off and marked skipped")
+check(ui.makeButton.disabled, "a skipped node alone can't make a route")
+for _, e in ipairs(GP:ZoneNodes(E)) do
+    if e.name == "Silverleaf" then check(e.skip, "ZoneNodes marks it") end
+end
+herbHead = nil
+for _, h in ipairs(ui.kindHeads) do if h:IsShown() and h:GetText() == "HERBS" then herbHead = h end end
+Click(herbHead.all)
+check(SwitchFor("Peacebloom"):IsOn() and not SwitchFor("Silverleaf"):IsOn(), "Select all leaves it off")
+check(herbHead.all:GetText() == "Clear all", "and every node that isn't skipped counts as all")
+check(ui.newHint:GetText() == "Earthroot and Peacebloom", "the made-up name leaves it out")
+Click(herbHead.all)
+local herbsBoth = { ["Herb Gathering"] = { Peacebloom = true, Silverleaf = true } }
+local peace = 0
+for _, e in ipairs(GP:ZoneNodes(E)) do if e.name == "Peacebloom" then peace = e.count end end
+check(peace > 0 and #GP:CollectNodes(E, herbsBoth) == peace, "no route reads its nodes")
+check(GP:RouteName(E, herbsBoth) == "Peacebloom")
+check(not GP:AnyPicked({ ["Herb Gathering"] = { Silverleaf = true } }), "picking only skipped nodes picks nothing")
+check(GP:NewRoute({ mapID = E, kinds = { ["Herb Gathering"] = { Silverleaf = true } } }) == nil
+    and logHas("pick at least one kind of node"), "so no route is made from them")
+local before = GP:NodeCount(route)
+local kept = { points = { unpack(route.points) }, nodes = route.nodes, length = route.length }
+gm:Add(E, "Herb Gathering", 2, 0.66, 0.44)
+check(GP:NodeCount(route) == before, "a new skipped node doesn't join a route that has its kind")
+gm:Delete(E, "Herb Gathering", 0.66, 0.44)
+check(GP:RebuildRoute(route))
+RunJobs()
+check(route.nodes == peace, "rebuilding a route drops the skipped nodes")
+SlashCmdList.GATHERPATHFOREVER("skipped")
+check(logHas("skipped (right-click one on the New route tab to stop skipping it): Silverleaf"), "/gpf skipped lists them")
+GP:OpenConfig("new")
+Click(ui.myZone)
+Click(SwitchFor("Silverleaf"))
+check(not GP:IsSkipped("Silverleaf") and SwitchFor("Silverleaf"):IsOn(), "clicking a skipped node unskips and picks it")
+Click(SwitchFor("Silverleaf"), "RightButton")
+Click(SwitchFor("Silverleaf"), "RightButton")
+check(not GP:IsSkipped("Silverleaf") and logHas("is no longer skipped"), "right-click again stops skipping it")
+check(GP:RebuildRoute(route))
+RunJobs()
+check(route.nodes == peace + 2, "and a rebuild brings it back")
+GatherPathForeverDB.skip = { Silverleaf = true, [5] = true, Junk = "yes" }
+GP:LoadSettings()
+check(GP:IsSkipped("Silverleaf") and #GP:SkippedNames() == 1, "the saved list comes back, junk dropped")
+GP.db.skip = {}
+route.points, route.nodes, route.length = kept.points, kept.nodes, kept.length   -- as the later steps expect
+GP:OpenConfig("routes")
+
 STEP("a route that passes near its nodes")
 GP:NewRoute({ mapID = E, kinds = { ["Herb Gathering"] = { Peacebloom = true } }, name = "Every" })
 RunJobs()
