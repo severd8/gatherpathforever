@@ -543,6 +543,154 @@ local function BuildNew(p, page)
 end
 
 ---------------------------------------------------------------------------
+-- Taboo areas tab: the areas in a zone, Draw a taboo area, Delete
+---------------------------------------------------------------------------
+local tabooZone   -- the map whose taboo areas are listed
+local TABOO_ROW = 30
+
+local function TabooZoneChoices()
+    local seen, list = {}, {}
+    local function Add(m) if m and not seen[m] then seen[m] = true; list[#list + 1] = m end end
+    for _, m in ipairs(GP:GatherZones()) do Add(m) end
+    for m in pairs(GP.db.taboos) do Add(m) end
+    for _, m in ipairs(GP:RouteZones()) do Add(m) end
+    Add(GP:PlayerMap())
+    table.sort(list, function(a, b) return GP:MapName(a) < GP:MapName(b) end)
+    return list
+end
+
+-- About how big an area is, in yards across and down
+local function AreaSize(mapID, xy)
+    local w, h = GP:MapYards(mapID)
+    w, h = w or 1500, h or 1000
+    local x1, y1, x2, y2 = 1, 1, 0, 0
+    for k = 1, #xy, 2 do
+        x1, x2 = math.min(x1, xy[k]), math.max(x2, xy[k])
+        y1, y2 = math.min(y1, xy[k + 1]), math.max(y2, xy[k + 1])
+    end
+    return math.floor((x2 - x1) * w + 0.5), math.floor((y2 - y1) * h + 0.5)
+end
+
+local function BuildTaboo(p)
+    T.RowLabel(p, "Zone", 0, 0)
+    local zone = T.Dropdown(p, 300, {}, function(k) return k and GP:MapName(k) or "Pick a zone" end,
+        function() return tabooZone end, function(k) tabooZone = k; GP:RefreshConfig() end)
+    zone:SetPoint("TOPLEFT", DROP_X, 0)
+    zone.menuScroll = 300
+    refs.tabooZone = zone
+    local here = FlatButton(p, "My zone", 90)
+    here:SetPoint("LEFT", zone, "RIGHT", 8, 0)
+    here:SetScript("OnClick", function()
+        tabooZone = GP:PlayerMap()
+        GP:RefreshConfig()
+    end)
+    T.Tooltip(here, "My zone", "Pick the zone you're in.")
+    refs.tabooMyZone = here
+
+    T.Note(p, "A taboo area is a part of a zone your routes stay out of, like the mountains in Eastern "
+        .. "Plaguelands. No node inside it is used, and the route's line goes round it. Draw one on the "
+        .. "world map: the routes in that zone are then worked out again.", 0, -34, PAGE_W)
+
+    local draw = FlatButton(p, "Draw a taboo area", 180, 24)
+    draw:SetPoint("TOPLEFT", 0, -92)
+    draw:SetScript("OnClick", function(self)
+        if self.disabled then return end
+        GP:StartTaboo(tabooZone)
+    end)
+    T.Tooltip(draw, "Draw a taboo area", "Opens the world map on this zone. Left-click for each corner of "
+        .. "the area, right-click to take the last one back, then click Finish at the top of the map.")
+    T.Disabler(draw, { draw })
+    refs.tabooDraw = draw
+
+    local show = T.LabeledSwitch(p, "Show on the world map", COL2, -96)
+    show:SetScript("OnClick", function(self)
+        GP.db.tabooShow = not self:IsOn()
+        GP:Changed()
+    end)
+    T.Tooltip(show, "Show on the world map", "Draw the taboo areas on the world map, red and hatched. "
+        .. "They're always shown while you're drawing one.")
+    refs.tabooShow = show
+
+    local LIST_Y = -130
+    local holder = CreateFrame("Frame", nil, p)
+    holder:SetPoint("TOPLEFT", 0, LIST_Y)
+    holder:SetSize(PAGE_W, BODY_H + LIST_Y)
+    T.Fill(holder, C.card)
+    T.Border(holder, C.line)
+    local inner = CreateFrame("Frame", nil, holder)
+    inner:SetPoint("TOPLEFT", 10, -8)
+    inner:SetPoint("BOTTOMRIGHT", -4, 8)
+    local scroll = T.ScrollArea(inner, BODY_H + LIST_Y - 16)
+    local list = scroll.child
+    local empty = T.Note(holder, "", 12, -12, PAGE_W - 24)
+    refs.tabooEmpty = empty
+    local rows = {}
+    refs.tabooRows = rows
+
+    local function Row(i)
+        if rows[i] then return rows[i] end
+        local r = CreateFrame("Frame", nil, list)
+        r:SetSize(PAGE_W - 30, TABOO_ROW - 4)
+        r.text = Text(r, "", "GameFontHighlight")
+        r.text:SetPoint("LEFT", 4, 0)
+        r.del = FlatButton(r, "Delete", 80, 20)
+        r.del:SetPoint("RIGHT", 0, 0)
+        r.del:SetScript("OnClick", function(self)
+            local m, idx = self.mapID, self.index
+            if not (m and idx) then return end
+            GP:Confirm(("Delete taboo area %d in |cffffd100%s|r? Your routes there are worked out again."):format(
+                idx, GP:MapName(m)), "Delete", function() GP:DeleteTaboo(m, idx) end)
+        end)
+        T.Tooltip(r.del, "Delete", "Delete this taboo area. The routes in this zone are worked out again without it.")
+        r.view = FlatButton(r, "Show", 80, 20)
+        r.view:SetPoint("RIGHT", r.del, "LEFT", -8, 0)
+        r.view:SetScript("OnClick", function(self)
+            if not self.mapID then return end
+            if GP.config then GP.config:Hide() end
+            if OpenWorldMap then pcall(OpenWorldMap, self.mapID) end
+        end)
+        T.Tooltip(r.view, "Show", "Open the world map on this zone.")
+        rows[i] = r
+        return r
+    end
+
+    AddRefresher(function()
+        if not tabooZone then tabooZone = GP:PlayerMap() end
+        zone.keys = TabooZoneChoices()
+        zone:Refresh()
+        show:SetOn(GP.db.tabooShow)
+        draw:SetDisabled(not tabooZone)
+        draw:SetText(GP.drawing and GP.drawing.mapID == tabooZone and "Keep drawing" or "Draw a taboo area")
+        local areas = tabooZone and GP:Taboos(tabooZone) or {}
+        for i, xy in ipairs(areas) do
+            local r = Row(i)
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", 0, -(i - 1) * TABOO_ROW)
+            local aw, ah = AreaSize(tabooZone, xy)
+            r.text:SetText(("Area %d  |cff8a8070-  %d corners, about %d x %d yards|r"):format(i, #xy / 2, aw, ah))
+            r.del.mapID, r.del.index = tabooZone, i
+            r.view.mapID = tabooZone
+            r:Show()
+        end
+        for i = #areas + 1, #rows do rows[i]:Hide(); rows[i].del.index = nil end
+        scroll:SetContent(PAGE_W - 30, math.max(1, #areas * TABOO_ROW), true)
+        if not tabooZone then
+            empty:SetText("Pick a zone above, or click My zone for the one you're in.")
+        elseif #areas == 0 then
+            empty:SetText("No taboo areas in " .. GP:MapName(tabooZone) .. " yet. Click Draw a taboo area.")
+        else
+            empty:SetText("")
+        end
+    end)
+end
+
+-- Opens the Taboo areas tab on this zone (after drawing or cancelling)
+function GP:TabooTabInWindow(mapID)
+    tabooZone = mapID
+    self:OpenConfig("taboo")
+end
+
+---------------------------------------------------------------------------
 -- Display tab
 ---------------------------------------------------------------------------
 local function Setting(parent, text, x, y, key, tip, after)
@@ -658,6 +806,7 @@ end
 local TABS = {
     { key = "routes",  label = "Routes",    icon = "Interface\\Icons\\INV_Misc_Map_01",   build = BuildRoutes },
     { key = "new",     label = "New route", icon = "Interface\\Icons\\INV_Misc_Flower_02", build = BuildNew },
+    { key = "taboo",   label = "Taboo areas", icon = "Interface\\Icons\\INV_Misc_Bone_Skull_01", build = BuildTaboo },
     { key = "display", label = "Display",   icon = "Interface\\Icons\\INV_Misc_Spyglass_03", build = BuildDisplay },
 }
 GP.CONFIG_TABS = TABS

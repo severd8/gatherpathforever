@@ -39,6 +39,7 @@ GP.DEFAULTS = {
     arrows = true,         -- arrows along the lines show which way round to ride
     arrowsReverse = false, -- and they point the other way
     joinLine = true,       -- a dashed line on the minimap from you to the nearest point of a route
+    tabooShow = true,      -- taboo areas drawn (red, hatched) on the world map
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
     minimapAngle = 200,
@@ -120,6 +121,24 @@ function GP:LoadSettings()
         end
     end
     db.skip = skip
+    -- taboo areas: { [mapID] = { { x1, y1, x2, y2, ... }, ... } }, map positions 0-1
+    local taboos = {}
+    if type(db.taboos) == "table" then
+        for mapID, list in pairs(db.taboos) do
+            if type(mapID) == "number" and type(list) == "table" then
+                local keep = {}
+                for _, xy in ipairs(list) do
+                    if type(xy) == "table" and #xy >= 6 and #xy % 2 == 0 then
+                        local ok = true
+                        for i = 1, #xy do ok = ok and type(xy[i]) == "number" end
+                        if ok then keep[#keep + 1] = xy end
+                    end
+                end
+                if #keep > 0 then taboos[mapID] = keep end
+            end
+        end
+    end
+    db.taboos = taboos
     db.routes = type(db.routes) == "table" and db.routes or {}
     db.nextID = db.nextID or 1
     -- drop anything that isn't a usable route
@@ -394,23 +413,133 @@ end
 
 local function Round(v) return floor(v * 10000 + 0.5) / 10000 end
 
+---------------------------------------------------------------------------
+-- Taboo areas: parts of a zone routes keep out of. No node inside one is
+-- used, and a line that would cross one goes round it instead.
+---------------------------------------------------------------------------
+-- The taboo areas on a map: a list of flat { x1, y1, x2, y2, ... } (map positions)
+function GP:Taboos(mapID)
+    return self.db.taboos[mapID] or {}
+end
+
+-- The taboo areas of a map as walls for the solver (yards), or nil if none.
+-- Kept until an area changes.
+local wallCache = {}
+GP.tabooVersion = 0
+local function WallsFor(mapID)
+    local list = GP.db.taboos[mapID]
+    if not list or #list == 0 then return nil end
+    local c = wallCache[mapID]
+    if c and c.version == GP.tabooVersion then return c.walls end
+    local w, h = Yards(mapID)
+    local polys = {}
+    for i, xy in ipairs(list) do
+        local p = {}
+        for k = 1, #xy, 2 do p[k], p[k + 1] = xy[k] * w, xy[k + 1] * h end
+        polys[i] = p
+    end
+    local walls = O.Walls(polys)
+    wallCache[mapID] = { version = GP.tabooVersion, walls = walls }
+    return walls
+end
+GP.WallsFor = WallsFor
+
+-- Is this map position inside one of the map's taboo areas?
+function GP:InTaboo(mapID, x, y)
+    local walls = WallsFor(mapID)
+    if not walls then return false end
+    local w, h = Yards(mapID)
+    return walls:Inside({ x * w, y * h })
+end
+
+-- Adds a taboo area (flat list of 3 or more corners, map positions). Turned
+-- down if its edges cross. Every route on that map is then worked out again.
+function GP:AddTaboo(mapID, xy)
+    if type(mapID) ~= "number" or type(xy) ~= "table" or #xy < 6 then
+        Print("a taboo area needs at least 3 corners.")
+        return false
+    end
+    local w, h = Yards(mapID)
+    local yards = {}
+    for k = 1, #xy, 2 do yards[k], yards[k + 1] = xy[k] * w, xy[k + 1] * h end
+    if O.SelfCrossing(yards) then
+        Print("that area's edges cross each other. Right-click to take corners back until they don't, then Finish.")
+        return false
+    end
+    local copy = {}
+    for k = 1, #xy do copy[k] = Round(xy[k]) end
+    self.db.taboos[mapID] = self.db.taboos[mapID] or {}
+    table.insert(self.db.taboos[mapID], copy)
+    self.tabooVersion = self.tabooVersion + 1
+    self:Changed()
+    self:RebuildZone(mapID)
+    return true
+end
+
+function GP:DeleteTaboo(mapID, index)
+    local list = self.db.taboos[mapID]
+    if not (list and list[index]) then return false end
+    table.remove(list, index)
+    if #list == 0 then self.db.taboos[mapID] = nil end
+    self.tabooVersion = self.tabooVersion + 1
+    self:Changed()
+    self:RebuildZone(mapID)
+    return true
+end
+
+-- " 3 nodes in taboo areas left out." after a route's chat line, or ""
+function GP:TabooNote(route)
+    local n = route.taboo or 0
+    if n <= 0 then return "" end
+    return (" %d node%s in taboo areas left out."):format(n, n == 1 and "" or "s")
+end
+
+-- Rebuilds every route on a map, one after another
+function GP:RebuildZone(mapID)
+    self.queue = self.queue or {}
+    for _, route in ipairs(self:RoutesOn(mapID)) do
+        local queued = false
+        for _, r in ipairs(self.queue) do if r == route then queued = true end end
+        if not queued then self.queue[#self.queue + 1] = route end
+    end
+    self:PumpQueue()
+end
+
+-- Starts the next queued rebuild if nothing's being worked out
+function GP:PumpQueue()
+    local q = self.queue
+    while q and #q > 0 and not self.job do
+        local route = table.remove(q, 1)
+        local alive = false
+        for _, r in ipairs(self.db.routes) do if r == route then alive = true end end
+        if alive and not route.working then self:RebuildRoute(route) end
+    end
+end
+
 -- Reads the route's nodes from GatherMate2 and finds the shortest loop.
 -- Runs inside a job (it pauses now and then). Returns how many nodes it read.
 local function Build(route)
     local raw = GP:CollectNodes(route.mapID, route.kinds)
     local w, h = Yards(route.mapID)
+    local walls = WallsFor(route.mapID)
     local pts = {}
-    for i, p in ipairs(raw) do pts[i] = { p[1] * w, p[2] * h } end
-    local stops = O.Shortcut(pts, route.sight or 0)
+    for _, p in ipairs(raw) do
+        local q = { p[1] * w, p[2] * h }
+        if not (walls and walls:Inside(q)) then pts[#pts + 1] = q end   -- none from inside a taboo area
+    end
+    O.SetWalls(walls)
+    local stops = O.Expand(O.Shortcut(pts, route.sight or 0))
+    O.SetWalls(nil)
     local flat = {}
     for _, p in ipairs(stops) do
         flat[#flat + 1] = Round(p[1] / w)
         flat[#flat + 1] = Round(p[2] / h)
     end
     route.points = flat
-    route.nodes = #raw
+    route.nodes = #pts
+    route.taboo = #raw - #pts   -- left out: in taboo areas
     route.length = GP:RouteLength(route)
-    return #raw
+    return #pts
 end
 
 -- One route is worked out at a time, a little each frame, so a big one
@@ -440,6 +569,7 @@ function GP:RunJob(fn, done)
                 driver:SetScript("OnUpdate", nil)
                 self.job = nil
                 O.Pause = function() end
+                O.SetWalls(nil)
                 Print("|cffff5050couldn't work out the route:|r " .. tostring(a))
                 if self.Changed then self:Changed() end
                 return
@@ -449,6 +579,7 @@ function GP:RunJob(fn, done)
                 self.job = nil
                 O.Pause = function() end
                 done(a, b)
+                self:PumpQueue()
                 return
             end
         until clock() - start > BUDGET_MS
@@ -562,8 +693,8 @@ function GP:NewRoute(opts)
                 .. self:MapName(route.mapID) .. ", so there's no route to make.")
             return
         end
-        Print(("made |cffffd100%s|r in %s: %d nodes, %s round."):format(route.name, self:MapName(route.mapID),
-            self:RouteNodes(route), self.FormatYards(route.length)))
+        Print(("made |cffffd100%s|r in %s: %d nodes, %s round.%s"):format(route.name, self:MapName(route.mapID),
+            self:RouteNodes(route), self.FormatYards(route.length), self:TabooNote(route)))
         self:Changed()
     end)
     return route
@@ -588,9 +719,9 @@ function GP:RebuildRoute(route)
             Print("GatherMate2 has no nodes for " .. route.name .. " now, so it was left as it was.")
         else
             local after = self:RouteNodes(route)
-            Print(("%s: %d nodes (%s), %s round."):format(route.name, after,
+            Print(("%s: %d nodes (%s), %s round.%s"):format(route.name, after,
                 after == before and "no change" or ((after > before and "+" or "") .. (after - before)),
-                self.FormatYards(route.length)))
+                self.FormatYards(route.length), self:TabooNote(route)))
         end
         self:Changed()
     end)
@@ -630,8 +761,8 @@ function GP:EditRoute(route, opts)
             Print("GatherMate2 has " .. (read == 1 and "only one" or "no") .. " node of those kinds in "
                 .. self:MapName(mapID) .. ", so " .. route.name .. " was left as it was.")
         else
-            Print(("changed |cffffd100%s|r in %s: %d nodes, %s round."):format(route.name, self:MapName(route.mapID),
-                self:RouteNodes(route), self.FormatYards(route.length)))
+            Print(("changed |cffffd100%s|r in %s: %d nodes, %s round.%s"):format(route.name, self:MapName(route.mapID),
+                self:RouteNodes(route), self.FormatYards(route.length), self:TabooNote(route)))
         end
         self:Changed()
     end)
@@ -675,6 +806,8 @@ end
 function GP:AddNode(mapID, kind, x, y, name)
     if not self.db.autoAdd or self:IsSkipped(name) then return 0 end
     local w, h = Yards(mapID)
+    local walls = WallsFor(mapID)
+    if walls and walls:Inside({ x * w, y * h }) then return 0 end   -- in a taboo area
     local added = 0
     for _, route in ipairs(self:RoutesOn(mapID)) do
         if not route.working and route.kinds[kind] and route.kinds[kind][name] then
@@ -691,13 +824,26 @@ function GP:AddNode(mapID, kind, x, y, name)
                 if O.SegDist(pts[i], pts[i % n + 1], c) <= sight then close = true end
             end
             if not close then
+                O.SetWalls(walls)
                 local at = O.BestInsert(pts, tour, c)
                 local spot = c
                 if sight > 0 and n > 1 then
                     spot = O.Place(pts[at], pts[at % n + 1], c, sight)
                 end
-                table.insert(p, 2 * at + 1, Round(spot[1] / w))
-                table.insert(p, 2 * at + 2, Round(spot[2] / h))
+                -- with taboo areas, the corners the new legs bend round go in too
+                local add = {}
+                if walls then
+                    for _, v in ipairs(walls:Path(pts[at], spot)) do add[#add + 1] = v end
+                end
+                add[#add + 1] = spot
+                if walls and n > 1 then
+                    for _, v in ipairs(walls:Path(spot, pts[at % n + 1])) do add[#add + 1] = v end
+                end
+                O.SetWalls(nil)
+                for k, v in ipairs(add) do
+                    table.insert(p, 2 * (at + k - 1) + 1, Round(v[1] / w))
+                    table.insert(p, 2 * (at + k - 1) + 2, Round(v[2] / h))
+                end
                 route.length = self:RouteLength(route)
                 if route.nodes then route.nodes = route.nodes + 1 end
                 added = added + 1
@@ -712,6 +858,7 @@ end
 -- only pass near their nodes)
 function GP:RemoveNode(mapID, kind, x, y, name)
     local w, h = Yards(mapID)
+    local walls = WallsFor(mapID)
     local removed = 0
     for _, route in ipairs(self:RoutesOn(mapID)) do
         if not route.working and route.kinds[kind] and route.kinds[kind][name]
@@ -722,6 +869,17 @@ function GP:RemoveNode(mapID, kind, x, y, name)
                 if sqrt(dx * dx + dy * dy) < 1 then
                     table.remove(p, 2 * i - 1)
                     table.remove(p, 2 * i - 1)
+                    local n = self:NodeCount(route)
+                    if walls and n >= 2 then
+                        -- its neighbours now meet: round any taboo area between them
+                        local a = (i - 2) % n + 1
+                        local b = a % n + 1
+                        local pa, pb = { p[2 * a - 1] * w, p[2 * a] * h }, { p[2 * b - 1] * w, p[2 * b] * h }
+                        for k, v in ipairs(walls:Path(pa, pb)) do
+                            table.insert(p, 2 * (a + k - 1) + 1, Round(v[1] / w))
+                            table.insert(p, 2 * (a + k - 1) + 2, Round(v[2] / h))
+                        end
+                    end
                     route.length = self:RouteLength(route)
                     if route.nodes then route.nodes = route.nodes - 1 end
                     removed = removed + 1
@@ -887,6 +1045,9 @@ function Pin:OnLoad()
     self:UseFrameLevelType("PIN_FRAME_LEVEL_MAP_HIGHLIGHT")
     self.pool = LinePool(self, "OVERLAY")
     self.arrows = LinePool(self, "OVERLAY")
+    self.taboo = LinePool(self, "ARTWORK")   -- taboo areas, under the routes
+    self.draft = LinePool(self, "OVERLAY")   -- the area being drawn
+    self:SetScript("OnUpdate", function(pin) if GP.drawing then pin:DrawDraft() end end)
 end
 
 function Pin:OnAcquired()
@@ -901,6 +1062,109 @@ end
 
 function Pin:OnCanvasScaleChanged()
     self:Draw()
+end
+
+-- Diagonal hatching inside a polygon (xs, ys, n corners, in pixels): lines
+-- along x + y = c every `spacing` pixels, as { x1, y1, x2, y2 } pieces
+local MAX_HATCH = 600
+local function HatchSpans(xs, ys, n, spacing)
+    local out = {}
+    if n < 3 or not (spacing > 0) then return out end
+    local lo, hi = math.huge, -math.huge
+    for i = 1, n do
+        local u = xs[i] + ys[i]
+        lo, hi = min(lo, u), max(hi, u)
+    end
+    local c = (floor(lo / spacing) + 1) * spacing
+    while c < hi do
+        local cuts = {}
+        for i = 1, n do
+            local j = i % n + 1
+            local fi, fj = xs[i] + ys[i] - c, xs[j] + ys[j] - c
+            if (fi > 0) ~= (fj > 0) then
+                local t = fi / (fi - fj)
+                cuts[#cuts + 1] = xs[i] + (xs[j] - xs[i]) * t
+            end
+        end
+        table.sort(cuts)
+        for k = 1, #cuts - 1, 2 do
+            out[#out + 1] = { cuts[k], c - cuts[k], cuts[k + 1], c - cuts[k + 1] }
+            if #out >= MAX_HATCH then return out end
+        end
+        c = c + spacing
+    end
+    return out
+end
+GP.HatchSpans = HatchSpans
+
+GP.TABOO_COLOR = { 0.95, 0.22, 0.15 }
+GP.HATCH_GAP = 12   -- pixels on screen between hatch lines
+
+-- The taboo areas of the map shown: a red outline, hatched inside
+function Pin:DrawTaboos(mapID, w, h, scale)
+    local pool = self.taboo
+    pool:Begin()
+    local db = GP.db
+    if db and (db.tabooShow or GP.drawing) and mapID then
+        local c = GP.TABOO_COLOR
+        for _, xy in ipairs(GP:Taboos(mapID)) do
+            local n = floor(#xy / 2)
+            local xs, ys = {}, {}
+            for i = 1, n do xs[i], ys[i] = xy[2 * i - 1] * w, -xy[2 * i] * h end
+            for i = 1, n do
+                local j = i % n + 1
+                local line = pool:Get()
+                Paint(line, c, 0.9, 2 / scale)
+                line:SetStartPoint("TOPLEFT", self, xs[i], ys[i])
+                line:SetEndPoint("TOPLEFT", self, xs[j], ys[j])
+            end
+            for _, sp in ipairs(HatchSpans(xs, ys, n, GP.HATCH_GAP / scale)) do
+                local line = pool:Get()
+                Paint(line, c, 0.4, 1 / scale)
+                line:SetStartPoint("TOPLEFT", self, sp[1], sp[2])
+                line:SetEndPoint("TOPLEFT", self, sp[3], sp[4])
+            end
+        end
+    end
+    pool:Done()
+end
+
+-- The area being drawn: its corners joined, and on to the cursor
+function Pin:DrawDraft()
+    local pool = self.draft
+    if not pool then return end
+    pool:Begin()
+    local d = GP.drawing
+    local map = self:GetMap()
+    if d and map and map:GetMapID() == d.mapID then
+        local w, h = self:GetWidth(), self:GetHeight()
+        local scale = self:GetEffectiveScale() / max(0.01, map:GetEffectiveScale())
+        local pts = d.pts
+        local n = floor(#pts / 2)
+        local xs, ys = {}, {}
+        for i = 1, n do xs[i], ys[i] = pts[2 * i - 1] * w, -pts[2 * i] * h end
+        local c, gold = GP.TABOO_COLOR, { 1, 0.82, 0 }
+        local function Seg(ax, ay, bx, by, color, alpha, width)
+            local line = pool:Get()
+            Paint(line, color, alpha, width / scale)
+            line:SetStartPoint("TOPLEFT", self, ax, ay)
+            line:SetEndPoint("TOPLEFT", self, bx, by)
+        end
+        for i = 1, n - 1 do Seg(xs[i], ys[i], xs[i + 1], ys[i + 1], c, 1, 2) end
+        -- each corner a small gold square
+        for i = 1, n do
+            local r = 3 / scale
+            Seg(xs[i] - r, ys[i], xs[i] + r, ys[i], gold, 1, 6)
+        end
+        if n > 0 and map.GetNormalizedCursorPosition then
+            local ok, cx, cy = pcall(map.GetNormalizedCursorPosition, map)
+            if ok and cx and cx >= 0 and cx <= 1 and cy >= 0 and cy <= 1 then
+                Seg(xs[n], ys[n], cx * w, -cy * h, c, 0.7, 1.5)
+                if n >= 2 then Seg(cx * w, -cy * h, xs[1], ys[1], c, 0.35, 1) end
+            end
+        end
+    end
+    pool:Done()
 end
 
 -- Where a route's map sits on the map shown: offsets and sizes (0..1), or nil
@@ -922,6 +1186,11 @@ function Pin:Draw()
     local db = GP.db
     local map = self:GetMap()
     local shownMap = map and map:GetMapID()
+    if map and shownMap and map:IsShown() then
+        local scale = self:GetEffectiveScale() / max(0.01, map:GetEffectiveScale())
+        self:DrawTaboos(shownMap, self:GetWidth(), self:GetHeight(), scale)
+        self:DrawDraft()
+    end
     if db and db.worldMap and shownMap and map:IsShown() then
         local w, h = self:GetWidth(), self:GetHeight()
         -- the canvas is zoomed; keep lines the same width on screen
@@ -981,6 +1250,8 @@ function Provider:RemoveAllData()
         self.pin.pool:Done()
         self.pin.arrows:Begin()
         self.pin.arrows:Done()
+        self.pin.taboo:Begin()
+        self.pin.taboo:Done()
     end
 end
 
@@ -990,6 +1261,7 @@ end
 
 function Provider:OnMapChanged()
     self:RefreshAllData()
+    if GP.drawing then GP:UpdateDrawBar() end
 end
 
 function GP:SetupWorldMap()
@@ -1002,6 +1274,138 @@ function GP:DrawWorldMap()
     if self.provider and WorldMapFrame and WorldMapFrame:IsShown() then
         self.provider:RefreshAllData()
     end
+end
+
+---------------------------------------------------------------------------
+-- Drawing a taboo area on the world map: left-click adds a corner,
+-- right-click takes the last one back, Finish keeps it. The map still pans
+-- and zooms; clicks only become corners on the zone being drawn in.
+---------------------------------------------------------------------------
+local function TabooClick(map, button, cx, cy)
+    local d = GP.drawing
+    if not d or not map or map:GetMapID() ~= d.mapID then return false end
+    if button == "LeftButton" and cx and cy then
+        d.pts[#d.pts + 1] = Round(max(0, min(1, cx)))
+        d.pts[#d.pts + 1] = Round(max(0, min(1, cy)))
+    elseif button == "RightButton" then
+        if #d.pts == 0 then return false end   -- nothing to take back: zoom out as usual
+        d.pts[#d.pts] = nil
+        d.pts[#d.pts] = nil
+    else
+        return false
+    end
+    GP:UpdateDrawBar()
+    GP:DrawWorldMap()
+    return true
+end
+GP.TabooClick = TabooClick
+
+function GP:StartTaboo(mapID)
+    if not mapID then return false end
+    if InCombatLockdown and InCombatLockdown() then
+        Print("can't open the world map to draw while you're in combat.")
+        return false
+    end
+    if not (WorldMapFrame and WorldMapFrame.AddCanvasClickHandler) then
+        Print("can't draw on this world map.")
+        return false
+    end
+    self:SetupWorldMap()
+    if not (self.drawing and self.drawing.mapID == mapID) then
+        self.drawing = { mapID = mapID, pts = {} }
+    end
+    if not self.clickHandler then
+        self.clickHandler = TabooClick
+        WorldMapFrame:AddCanvasClickHandler(TabooClick, 100)
+    end
+    if self.config then self.config:Hide() end
+    if OpenWorldMap then
+        pcall(OpenWorldMap, mapID)
+    else
+        if not WorldMapFrame:IsShown() and ShowUIPanel then pcall(ShowUIPanel, WorldMapFrame) end
+        if WorldMapFrame.SetMapID then WorldMapFrame:SetMapID(mapID) end
+    end
+    self:UpdateDrawBar()
+    self:DrawWorldMap()
+    return true
+end
+
+local function EndDrawing(self)
+    self.drawing = nil
+    if self.clickHandler and WorldMapFrame and WorldMapFrame.RemoveCanvasClickHandler then
+        WorldMapFrame:RemoveCanvasClickHandler(self.clickHandler, 100)
+    end
+    self.clickHandler = nil
+    if self.drawBar then self.drawBar:Hide() end
+    self:DrawWorldMap()
+end
+
+function GP:FinishTaboo()
+    local d = self.drawing
+    if not d then return false end
+    if #d.pts < 6 then
+        Print("a taboo area needs at least 3 corners. Left-click the map to add them.")
+        return false
+    end
+    if not self:AddTaboo(d.mapID, d.pts) then return false end
+    local mapID = d.mapID
+    EndDrawing(self)
+    local n = #self:RoutesOn(mapID)
+    Print(("taboo area added in %s.%s"):format(self:MapName(mapID),
+        n > 0 and " Your routes there are being worked out again to go round it." or ""))
+    if self.TabooTabInWindow then self:TabooTabInWindow(mapID) end
+    return true
+end
+
+function GP:CancelTaboo()
+    local d = self.drawing
+    if not d then return end
+    EndDrawing(self)
+    if self.TabooTabInWindow then self:TabooTabInWindow(d.mapID) end
+end
+
+-- The bar over the world map while drawing
+function GP:UpdateDrawBar()
+    local d = self.drawing
+    local bar = self.drawBar
+    if not d then
+        if bar then bar:Hide() end
+        return
+    end
+    if not bar then
+        local parent = WorldMapFrame
+        bar = CreateFrame("Frame", nil, parent)
+        bar:SetSize(560, 64)
+        bar:SetPoint("TOP", parent.ScrollContainer or parent, "TOP", 0, -8)
+        bar:SetFrameStrata("DIALOG")
+        bar:EnableMouse(true)
+        T.Panel(bar, 0.92)
+        bar.title = T.Text(bar, "", "GameFontNormal", T.C.gold)
+        bar.title:SetPoint("TOPLEFT", 12, -10)
+        bar.help = T.Text(bar, "", "GameFontHighlightSmall")
+        bar.help:SetPoint("TOPLEFT", 12, -30)
+        bar.help:SetWidth(400)
+        bar.help:SetWordWrap(true)
+        bar.finish = T.FlatButton(bar, "Finish", 110, 22)
+        bar.finish:SetPoint("TOPRIGHT", -10, -8)
+        bar.finish:SetScript("OnClick", function(b) if not b.disabled then GP:FinishTaboo() end end)
+        T.Disabler(bar.finish, { bar.finish })
+        bar.cancel = T.FlatButton(bar, "Cancel", 110, 22)
+        bar.cancel:SetPoint("TOPRIGHT", -10, -34)
+        bar.cancel:SetScript("OnClick", function() GP:CancelTaboo() end)
+        self.drawBar = bar
+    end
+    local corners = floor(#d.pts / 2)
+    bar.title:SetText(("Taboo area in %s  -  %d corner%s"):format(self:MapName(d.mapID), corners, corners == 1 and "" or "s"))
+    local shown = WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
+    if shown ~= d.mapID then
+        bar.help:SetText(("Go back to %s on the map to draw there."):format(self:MapName(d.mapID)))
+    else
+        bar.help:SetText("Left-click the map for each corner, right-click to take the last one back. "
+            .. "Scroll to zoom, drag to move the map.")
+    end
+    bar.finish:SetDisabled(corners < 3)
+    bar:Show()
 end
 
 ---------------------------------------------------------------------------

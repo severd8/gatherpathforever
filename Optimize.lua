@@ -26,11 +26,323 @@ local function Step(n)
     end
 end
 
+-- Straight-line yards between two points
+local function Euclid(a, b)
+    local dx, dy = a[1] - b[1], a[2] - b[2]
+    return sqrt(dx * dx + dy * dy)
+end
+O.Euclid = Euclid
+
+-- Taboo areas the route keeps out of (O.Walls), while one is being worked out
+-- (O.SetWalls). nil: none, every leg is a straight line.
+local walls
+
+-- Yards to travel from a to b: straight, or round the taboo areas in the way
 local function Dist(a, b)
+    if walls then return walls:Dist(a, b) end
     local dx, dy = a[1] - b[1], a[2] - b[2]
     return sqrt(dx * dx + dy * dy)
 end
 O.Dist = Dist
+
+---------------------------------------------------------------------------
+-- Taboo areas: polygons (lists of { x, y } in yards) a route never goes into.
+-- A leg that would cross one goes round it instead, by way of its corners
+-- (pushed out by MARGIN so the line doesn't touch the edge). Distances round
+-- them come from the shortest paths between those corners (worked out once,
+-- Floyd-Warshall) and, for each point, which corners it can see.
+---------------------------------------------------------------------------
+local MARGIN = 3      -- yards a line going round an area keeps from its corners
+local HUGE = math.huge
+O.WALL_MARGIN = MARGIN
+
+local function Orient(ax, ay, bx, by, cx, cy)
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+end
+
+-- Do segments a-b and c-d touch or cross? (touching counts: better a short
+-- way round than a line along an edge)
+local function Crosses(ax, ay, bx, by, cx, cy, dx, dy)
+    local o1, o2 = Orient(ax, ay, bx, by, cx, cy), Orient(ax, ay, bx, by, dx, dy)
+    if (o1 > 0 and o2 > 0) or (o1 < 0 and o2 < 0) then return false end
+    local o3, o4 = Orient(cx, cy, dx, dy, ax, ay), Orient(cx, cy, dx, dy, bx, by)
+    if (o3 > 0 and o4 > 0) or (o3 < 0 and o4 < 0) then return false end
+    if o1 == 0 and o2 == 0 and o3 == 0 and o4 == 0 then
+        -- on one line: only if they overlap
+        return math.max(math.min(ax, bx), math.min(cx, dx)) <= math.min(math.max(ax, bx), math.max(cx, dx))
+            and math.max(math.min(ay, by), math.min(cy, dy)) <= math.min(math.max(ay, by), math.max(cy, dy))
+    end
+    return true
+end
+O.Crosses = Crosses
+
+-- Is (x, y) inside the polygon (flat list x1, y1, x2, y2...)? Ray casting.
+local function InPoly(xy, x, y)
+    local inside = false
+    local n = #xy / 2
+    local j = n
+    for i = 1, n do
+        local xi, yi, xj, yj = xy[2 * i - 1], xy[2 * i], xy[2 * j - 1], xy[2 * j]
+        if (yi > y) ~= (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi then inside = not inside end
+        j = i
+    end
+    return inside
+end
+
+-- Does a polygon's outline cross itself? (flat list)
+function O.SelfCrossing(xy)
+    local n = #xy / 2
+    for i = 1, n do
+        local i2 = i % n + 1
+        for j = i + 1, n do
+            local j2 = j % n + 1
+            if j ~= i2 and j2 ~= i then
+                if Crosses(xy[2 * i - 1], xy[2 * i], xy[2 * i2 - 1], xy[2 * i2],
+                    xy[2 * j - 1], xy[2 * j], xy[2 * j2 - 1], xy[2 * j2]) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+local Walls = {}
+Walls.__index = Walls
+
+-- polys: a list of polygons, each a flat list { x1, y1, x2, y2, ... } in yards
+-- (3 corners or more). Returns the walls, or nil if there are none.
+function O.Walls(polys)
+    local w = setmetatable({ polys = {}, edges = {}, verts = {}, info = setmetatable({}, { __mode = "k" }) }, Walls)
+    local minX, minY, maxX, maxY = HUGE, HUGE, -HUGE, -HUGE
+    for _, xy in ipairs(polys or {}) do
+        local n = math.floor(#xy / 2)
+        if n >= 3 then
+            local poly = { n = n }
+            local area = 0
+            for i = 1, n do
+                local j = i % n + 1
+                area = area + xy[2 * i - 1] * xy[2 * j] - xy[2 * j - 1] * xy[2 * i]
+            end
+            -- corners anticlockwise (x right, y up in the maths; any way works if consistent)
+            local flat = {}
+            for i = 1, n do
+                local k = area >= 0 and i or n - i + 1
+                flat[2 * i - 1], flat[2 * i] = xy[2 * k - 1], xy[2 * k]
+            end
+            poly.xy = flat
+            local pminX, pminY, pmaxX, pmaxY = HUGE, HUGE, -HUGE, -HUGE
+            for i = 1, n do
+                local x, y = flat[2 * i - 1], flat[2 * i]
+                pminX, pmaxX = math.min(pminX, x), math.max(pmaxX, x)
+                pminY, pmaxY = math.min(pminY, y), math.max(pmaxY, y)
+                local j = i % n + 1
+                local x2, y2 = flat[2 * j - 1], flat[2 * j]
+                w.edges[#w.edges + 1] = { x, y, x2, y2,
+                    math.min(x, x2), math.min(y, y2), math.max(x, x2), math.max(y, y2) }
+            end
+            poly.box = { pminX, pminY, pmaxX, pmaxY }
+            minX, minY = math.min(minX, pminX), math.min(minY, pminY)
+            maxX, maxY = math.max(maxX, pmaxX), math.max(maxY, pmaxY)
+            w.polys[#w.polys + 1] = poly
+        end
+    end
+    if #w.polys == 0 then return nil end
+    w.box = { minX - 1, minY - 1, maxX + 1, maxY + 1 }
+    -- the corners a way round can bend at: each corner that sticks out,
+    -- pushed out from both its edges by MARGIN
+    for _, poly in ipairs(w.polys) do
+        local xy, n = poly.xy, poly.n
+        for i = 1, n do
+            local h, j = (i - 2) % n + 1, i % n + 1
+            local px, py = xy[2 * h - 1], xy[2 * h]
+            local x, y = xy[2 * i - 1], xy[2 * i]
+            local nx, ny = xy[2 * j - 1], xy[2 * j]
+            if Orient(px, py, x, y, nx, ny) > 0 then   -- turns left: sticks out (anticlockwise)
+                local d1x, d1y = x - px, y - py
+                local d2x, d2y = nx - x, ny - y
+                local l1, l2 = sqrt(d1x * d1x + d1y * d1y), sqrt(d2x * d2x + d2y * d2y)
+                if l1 > 0 and l2 > 0 then
+                    -- outward normals (right of the way round)
+                    local n1x, n1y = d1y / l1, -d1x / l1
+                    local n2x, n2y = d2y / l2, -d2x / l2
+                    local k = MARGIN / math.max(0.25, 1 + n1x * n2x + n1y * n2y)
+                    local v = { x + (n1x + n2x) * k, y + (n1y + n2y) * k }
+                    if not w:Inside(v) then w.verts[#w.verts + 1] = v end
+                end
+            end
+        end
+    end
+    -- shortest ways between the corners
+    local V = #w.verts
+    local D, nxt = {}, {}
+    for i = 1, V do
+        D[i], nxt[i] = {}, {}
+        for j = 1, V do D[i][j] = i == j and 0 or HUGE end
+    end
+    for i = 1, V do
+        for j = i + 1, V do
+            if not w:Blocked(w.verts[i], w.verts[j]) then
+                local d = Euclid(w.verts[i], w.verts[j])
+                D[i][j], D[j][i], nxt[i][j], nxt[j][i] = d, d, j, i
+            end
+        end
+        O.Pause()
+    end
+    for k = 1, V do
+        local Dk = D[k]
+        for i = 1, V do
+            local Di, dik = D[i], D[i][k]
+            if dik < HUGE then
+                local Ni = nxt[i]
+                for j = 1, V do
+                    local d = dik + Dk[j]
+                    if d < Di[j] then Di[j], Ni[j] = d, Ni[k] end
+                end
+            end
+        end
+        O.Pause()
+    end
+    w.D, w.nxt = D, nxt
+    return w
+end
+
+-- Is the point inside a taboo area?
+function Walls:Inside(p)
+    local x, y = p[1], p[2]
+    for _, poly in ipairs(self.polys) do
+        local b = poly.box
+        if x >= b[1] and x <= b[3] and y >= b[2] and y <= b[4] and InPoly(poly.xy, x, y) then return true end
+    end
+    return false
+end
+
+-- Does the straight line a-b touch a taboo area?
+function Walls:Blocked(a, b)
+    local ax, ay, bx, by = a[1], a[2], b[1], b[2]
+    local x1, y1, x2, y2 = math.min(ax, bx), math.min(ay, by), math.max(ax, bx), math.max(ay, by)
+    local box = self.box
+    if x2 < box[1] or x1 > box[3] or y2 < box[2] or y1 > box[4] then return false end
+    for _, e in ipairs(self.edges) do
+        if not (x2 < e[5] or x1 > e[7] or y2 < e[6] or y1 > e[8])
+            and Crosses(ax, ay, bx, by, e[1], e[2], e[3], e[4]) then
+            return true
+        end
+    end
+    return false
+end
+
+-- What's known about one point: the corners it can see (and how far), the
+-- yards from it to every corner, and distances to other points already worked
+-- out. Kept while the point stays where it is.
+function Walls:Info(p)
+    local info = self.info[p]
+    if info and info.x == p[1] and info.y == p[2] then return info end
+    info = { x = p[1], y = p[2], pair = setmetatable({}, { __mode = "k" }) }
+    self.info[p] = info
+    return info
+end
+
+function Walls:Seen(info, p)
+    if info.seen then return info.seen end
+    local seen = {}
+    for i, v in ipairs(self.verts) do
+        if not self:Blocked(p, v) then seen[#seen + 1] = i; seen[#seen + 1] = Euclid(p, v) end
+    end
+    Step(#self.verts)
+    info.seen = seen
+    return seen
+end
+
+-- Yards from p to every corner, going round
+function Walls:To(info, p)
+    if info.to then return info.to end
+    local seen = self:Seen(info, p)
+    local to, via = {}, {}
+    local D = self.D
+    for j = 1, #self.verts do to[j] = HUGE end
+    for k = 1, #seen, 2 do
+        local u, du = seen[k], seen[k + 1]
+        local Du = D[u]
+        for j = 1, #self.verts do
+            local d = du + Du[j]
+            if d < to[j] then to[j], via[j] = d, u end
+        end
+    end
+    Step(#seen * 2)
+    info.to, info.via = to, via
+    return to
+end
+
+-- The way from a to b round the taboo areas: its length, and the corners it
+-- bends at (indices), or nil when a can't get to b at all
+function Walls:Way(a, b)
+    local ia, ib = self:Info(a), self:Info(b)
+    local to = self:To(ia, a)
+    local seen = self:Seen(ib, b)
+    local best, last = HUGE, nil
+    for k = 1, #seen, 2 do
+        local v = seen[k]
+        local d = to[v] + seen[k + 1]
+        if d < best then best, last = d, v end
+    end
+    return best, last, ia
+end
+
+function Walls:Dist(a, b)
+    local ib = self:Info(b)
+    local ia = self:Info(a)
+    local d = ia.pair[ib]
+    if d then return d end
+    if not self:Blocked(a, b) then
+        d = Euclid(a, b)
+    else
+        d = self:Way(a, b)
+        if d == HUGE then d = Euclid(a, b) * 100 end   -- shut in: straight through, but never chosen if it can help it
+    end
+    ia.pair[ib] = d
+    ib.pair[ia] = d
+    return d
+end
+
+-- The corners (as { x, y }) a leg from a to b bends round, in order; empty
+-- when the straight line is clear (or there's no way round)
+function Walls:Path(a, b)
+    if not self:Blocked(a, b) then return {} end
+    local d, last, ia = self:Way(a, b)
+    if d == HUGE or not last then return {} end
+    local first = ia.via[last]
+    local out = {}
+    local k = first
+    while k do
+        out[#out + 1] = { self.verts[k][1], self.verts[k][2] }
+        if k == last then break end
+        k = self.nxt[k][last]
+    end
+    return out
+end
+
+-- Use these walls (or none) for every distance from now on
+function O.SetWalls(w) walls = w end
+function O.GetWalls() return walls end
+
+-- The loop (stops in order) with the corners each blocked leg bends round
+-- put in between; those carry bend = true
+function O.Expand(stops)
+    if not walls or #stops < 2 then return stops end
+    local out = {}
+    local n = #stops
+    for i = 1, n do
+        local a, b = stops[i], stops[i % n + 1]
+        out[#out + 1] = a
+        for _, v in ipairs(walls:Path(a, b)) do
+            v.bend = true
+            out[#out + 1] = v
+        end
+        Step(4)
+    end
+    return out
+end
 
 -- The length of a tour, back to the start
 function O.Length(points, tour)
@@ -61,7 +373,7 @@ function O.Group(points, radius)
             used[i] = true
             local group = { p }
             for j = i + 1, #points do
-                if not used[j] and Dist(p, points[j]) <= radius then
+                if not used[j] and Euclid(p, points[j]) <= radius and not (walls and walls:Blocked(p, points[j])) then
                     used[j] = true
                     group[#group + 1] = points[j]
                 end
@@ -72,11 +384,17 @@ function O.Group(points, radius)
             local spot = { sx / #group, sy / #group }
             local function Reach(c)
                 local r = 0
-                for _, q in ipairs(group) do r = math.max(r, Dist(c, q)) end
+                for _, q in ipairs(group) do r = math.max(r, Euclid(c, q)) end
                 return r
             end
             local reach = Reach(spot)
-            if reach > radius then spot, reach = { p[1], p[2] }, Reach(p) end
+            local function Walled(c)
+                if not walls then return false end
+                if walls:Inside(c) then return true end
+                for _, q in ipairs(group) do if walls:Blocked(c, q) then return true end end
+                return false
+            end
+            if reach > radius or Walled(spot) then spot, reach = { p[1], p[2] }, Reach(p) end
             spot.count, spot.reach = #group, reach
             out[#out + 1] = spot
         end
@@ -376,20 +694,27 @@ end
 O.Closest = Closest
 
 -- How far c is from the segment a-b
-function O.SegDist(a, b, c) return Dist(c, Closest(a, b, c)) end
+function O.SegDist(a, b, c) return Euclid(c, Closest(a, b, c)) end
+
+-- Can a stop at p stand for node c: outside the taboo areas, with nothing
+-- between it and c?
+local function Clear(p, c)
+    return not walls or not (walls:Inside(p) or walls:Blocked(p, c))
+end
 
 -- Where to walk past node c, coming from a and going on to b, when you only
 -- need to get within `radius` of it: the spot that far from c with the
 -- shortest a -> spot -> b. On the straight line a-b if that passes close enough.
 function O.Place(a, b, c, radius)
     local q = Closest(a, b, c)
-    local d = Dist(q, c)
-    if d <= radius then return q end
+    local d = Euclid(q, c)
+    if d <= radius and Clear(q, c) then return q end
     local function At(t)
         return { c[1] + radius * math.cos(t), c[2] + radius * math.sin(t) }
     end
     local function Cost(t)
         local p = At(t)
+        if not Clear(p, c) then return HUGE end
         return Dist(a, p) + Dist(p, b)
     end
     -- search the half of the circle facing the line (golden section)
@@ -411,6 +736,7 @@ function O.Place(a, b, c, radius)
     end
     local best = f1 < f2 and x1 or x2
     if Cost(t0) <= Cost(best) then best = t0 end
+    if Cost(best) == HUGE then return { c[1], c[2] } end   -- nowhere clear on the circle: the node itself
     return At(best)
 end
 
@@ -443,7 +769,7 @@ function O.Shortcut(nodes, radius)
                 local before = Dist(a, s) + Dist(s, b)
                 local p = O.Place(a, b, s.node, radius - (s.node.reach or 0))
                 if Dist(a, p) + Dist(p, b) < before - EPS then
-                    moved = math.max(moved, Dist(p, s))
+                    moved = math.max(moved, Euclid(p, s))
                     s[1], s[2] = p[1], p[2]
                 end
             end

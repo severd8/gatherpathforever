@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.12.0
+
+- New **taboo areas**: parts of a zone your routes stay out of, like the mountains in Eastern Plaguelands. Nodes inside a taboo area are left out, and a route's line goes **round** the area instead of straight over it.
+- Draw them from the new **Taboo areas** tab: pick the zone, click **Draw a taboo area**, then left-click the world map for each corner (right-click takes the last one back) and click **Finish** at the top of the map. You can still zoom and drag the map while drawing.
+- When you add or delete an area, the routes in that zone are worked out again by themselves. Chat says how many nodes were left out.
+- Taboo areas show on the world map in red, hatched. Turn that off with **Show on the world map** on the same tab.
+- Nodes GatherMate2 finds inside a taboo area don't join your routes, and ones found elsewhere join them going round the areas.
+
 ## 1.11.0
 
 - New **skip list** for nodes you never want in a route, like Poor Copper Ore or Wilted Peacebloom. On the **New route** tab, **right-click** a node to skip it: it's greyed out and marked "skipped", **Select all** leaves it out, and it's skipped in every zone and every route.

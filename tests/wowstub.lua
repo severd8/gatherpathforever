@@ -201,6 +201,33 @@ function WorldMapFrame:SetMapID(id)
     for _, p in ipairs(self.__providers or {}) do p:OnMapChanged() end
 end
 
+-- Canvas click handlers (the map calls them with itself, the button and the
+-- cursor's place on the map, 0-1); ClickMap plays a click through them
+function WorldMapFrame:AddCanvasClickHandler(fn, priority)
+    self.__clickHandlers = self.__clickHandlers or {}
+    table.insert(self.__clickHandlers, { fn, priority or 0 })
+end
+function WorldMapFrame:RemoveCanvasClickHandler(fn)
+    for i, h in ipairs(self.__clickHandlers or {}) do
+        if h[1] == fn then table.remove(self.__clickHandlers, i) return end
+    end
+end
+MAP_CURSOR = { 0.5, 0.5 }
+function WorldMapFrame:GetNormalizedCursorPosition() return MAP_CURSOR[1], MAP_CURSOR[2] end
+-- true if a handler took the click (the map then doesn't zoom or change)
+function ClickMap(button, x, y)
+    for _, h in ipairs(WorldMapFrame.__clickHandlers or {}) do
+        if h[1](WorldMapFrame, button, x, y) then return true end
+    end
+    return false
+end
+function OpenWorldMap(mapID)
+    WorldMapFrame:Show()
+    if mapID then WorldMapFrame:SetMapID(mapID) end
+end
+IN_COMBAT = false
+function InCombatLockdown() return IN_COMBAT end
+
 -- Menus: the dropdowns step through their choices when this is missing
 MenuUtil = nil
 

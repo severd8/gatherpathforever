@@ -178,6 +178,78 @@ do
 end
 
 ---------------------------------------------------------------------------
+STEP("taboo areas in the solver")
+do
+    -- a tall block in the middle of a 1000 x 1000 field
+    local block = { 450, -10, 550, -10, 550, 900, 450, 900 }
+    local W = O.Walls({ block })
+    check(W and #W.verts == 4, "its four corners to go round")
+    check(O.Walls({}) == nil and O.Walls({ { 0, 0, 1, 1 } }) == nil, "no areas (or one with 2 corners): no walls")
+    check(W:Inside({ 500, 500 }) and not W:Inside({ 400, 500 }), "inside and outside")
+    check(W:Blocked({ 100, 500 }, { 900, 500 }) and not W:Blocked({ 100, 950 }, { 900, 950 }), "a line through it is blocked")
+    check(not W:Blocked({ 100, 500 }, { 300, 500 }), "a line beside it isn't")
+    -- round the top: (100,500) -> (447,903) -> (553,903) -> (900,500)
+    local d = W:Dist({ 100, 500 }, { 900, 500 })
+    local over = 2 * math.sqrt(347 ^ 2 + 403 ^ 2) + 106
+    check(near(d, over, 0.01), "the way round is the distance (" .. d .. ")")
+    local path = W:Path({ 100, 500 }, { 900, 500 })
+    check(#path == 2 and near(path[1][1], 450 - O.WALL_MARGIN) and near(path[1][2], 900 + O.WALL_MARGIN)
+        and near(path[2][1], 550 + O.WALL_MARGIN), "bending round the two top corners, a little out from them")
+    check(#W:Path({ 100, 950 }, { 900, 950 }) == 0, "no bends on a clear line")
+    -- a U: from inside its pocket out under it goes up, over an arm and down
+    local U = { 300, 200, 700, 200, 700, 1000, 600, 1000, 600, 300, 400, 300, 400, 1000, 300, 1000 }
+    local WU = O.Walls({ U })
+    check(not WU:Inside({ 500, 600 }) and WU:Inside({ 350, 600 }), "the pocket isn't inside, the arm is")
+    local up = WU:Path({ 500, 600 }, { 500, 100 })
+    check(#up == 3 and up[1][2] > 1000 and up[3][2] < 200, "out of the pocket and round an arm")
+    check(near(WU:Dist({ 500, 600 }, { 500, 100 }), WU:Dist({ 500, 100 }, { 500, 600 })), "the same both ways")
+    check(O.SelfCrossing({ 0, 0, 10, 10, 10, 0, 0, 10 }) and not O.SelfCrossing(U), "edges that cross are found")
+    -- random fields round the block, every way: no leg goes through it
+    local function covered(nodes, stops, r)
+        for _, c in ipairs(nodes) do
+            local best = math.huge
+            for i = 1, #stops do best = math.min(best, O.SegDist(stops[i], stops[i % #stops + 1], c)) end
+            if best > r + 0.5 then return false end
+        end
+        return true
+    end
+    local function blockedLegs(stops, w)
+        local bad = 0
+        for i = 1, #stops do if w:Blocked(stops[i], stops[i % #stops + 1]) then bad = bad + 1 end end
+        return bad
+    end
+    for _, r in ipairs({ 0, 60 }) do
+        for _ = 1, 4 do
+            local pts = {}
+            while #pts < 80 do
+                local q = { math.random() * 1000, math.random() * 1000 }
+                if not W:Inside(q) then pts[#pts + 1] = q end
+            end
+            O.SetWalls(W)
+            local stops = O.Expand(O.Shortcut(pts, r))
+            O.SetWalls(nil)
+            check(blockedLegs(stops, W) == 0, "no leg crosses the area (passes within " .. r .. ")")
+            local bends, inside = 0, 0
+            for _, st in ipairs(stops) do
+                if st.bend then bends = bends + 1 end
+                if W:Inside(st) then inside = inside + 1 end
+            end
+            check(bends > 0 and inside == 0, "it bends round, and no stop is in it")
+            if r == 0 then check(#stops - bends == 80, "every node is still a stop") end
+            if r > 0 then check(covered(pts, stops, r), "every node is still passed within reach") end
+            -- without the area the same nodes go straight through
+            check(blockedLegs(O.Shortcut(pts, r), W) > 0, "(which they would without it)")
+        end
+    end
+    check(O.GetWalls() == nil and O.Dist({ 0, 0 }, { 3, 4 }) == 5, "walls off again: straight lines")
+    -- a stop that passes within reach never stands behind the area from its node
+    O.SetWalls(W)
+    local spot = O.Place({ 400, 500 }, { 400, 600 }, { 560, 550 }, 120)
+    O.SetWalls(nil)
+    check(not W:Inside(spot) and not W:Blocked(spot, { 560, 550 }), "the stop stays on the node's side")
+end
+
+---------------------------------------------------------------------------
 STEP("load with GatherMate2")
 local E, W = 1429, 1436
 local gm = FakeGatherMate({
@@ -712,7 +784,7 @@ for _, k in ipairs(GP.DISPLAY_KEYS) do
 end
 local listed = {}
 for _, k in ipairs(GP.DISPLAY_KEYS) do listed[k] = true end
-local notOnTab = { minimapAngle = true, sight = true, nextColor = true }
+local notOnTab = { minimapAngle = true, sight = true, nextColor = true, tabooShow = true }
 for k in pairs(GP.DEFAULTS) do
     check(listed[k] or notOnTab[k], k .. ": every setting on the tab is restored")
 end
@@ -947,6 +1019,137 @@ PLAYER.x = 0.5
 herbs.points = herbPoints2
 for i, r in ipairs(GP.db.routes) do r.shown = wasShown2[i] end
 GP:Changed()
+
+---------------------------------------------------------------------------
+STEP("taboo areas")
+do
+    local r1 = GP.db.routes[1]
+    local kept = { points = { unpack(r1.points) }, nodes = r1.nodes, length = r1.length, kinds = r1.kinds, sight = r1.sight }
+    -- a route to every Peacebloom and Silverleaf, straight through the middle
+    r1.kinds, r1.sight = { ["Herb Gathering"] = { Peacebloom = true, Silverleaf = true } }, 0
+    check(GP:RebuildRoute(r1))
+    RunJobs()
+    local before = r1.nodes
+    local function legsThrough(route, mapID)
+        local walls = GP.WallsFor(mapID)
+        local w, h = GP:MapYards(mapID)
+        local p, n, bad = route.points, GP:NodeCount(route), 0
+        for i = 1, n do
+            local j = i % n + 1
+            if walls:Blocked({ p[2 * i - 1] * w, p[2 * i] * h }, { p[2 * j - 1] * w, p[2 * j] * h }) then bad = bad + 1 end
+        end
+        return bad
+    end
+
+    -- the window: a Taboo areas tab
+    GP:OpenConfig("taboo")
+    check(GP.config.currentTab == "taboo" and ui.tabooZone.getter() == E, "a Taboo areas tab, on your zone")
+    check(ui.tabooEmpty:GetText():find("No taboo areas in Elwynn Forest", 1, true), "none yet")
+    check(ui.tabooShow:IsOn(), "shown on the world map to start")
+
+    -- draw one: a band down the middle, over the Peacebloom at 0.5, 0.4
+    IN_COMBAT = true
+    check(not GP:StartTaboo(E) and logHas("in combat"), "not in combat")
+    IN_COMBAT = false
+    Click(ui.tabooDraw)
+    check(GP.drawing and GP.drawing.mapID == E, "drawing in Elwynn")
+    check(WorldMapFrame:IsShown() and WorldMapFrame:GetMapID() == E, "on the world map, on that zone")
+    check(not GP.config:IsShown(), "the window gets out of the way")
+    check(GP.drawBar:IsShown() and GP.drawBar.finish.disabled, "a bar on the map; Finish waits for 3 corners")
+    check(ClickMap("LeftButton", 0.47, 0.30) and ClickMap("LeftButton", 0.53, 0.30), "left-clicks are corners")
+    check(GP.drawBar.title:GetText():find("2 corners", 1, true))
+    check(ClickMap("LeftButton", 0.9, 0.9) and ClickMap("RightButton"), "right-click takes the last one back")
+    check(#GP.drawing.pts == 4)
+    ClickMap("LeftButton", 0.53, 0.58)
+    ClickMap("LeftButton", 0.47, 0.58)
+    check(not GP.drawBar.finish.disabled and GP.drawBar.title:GetText():find("4 corners", 1, true), "Finish with 3 or more")
+    check(#Shown(GP.provider.pin.draft) >= 3, "the corners so far are drawn, on to the cursor")
+    WorldMapFrame:SetMapID(W)
+    check(not ClickMap("LeftButton", 0.2, 0.2), "on another map clicks work as usual")
+    check(GP.drawBar.help:GetText():find("Go back to Elwynn Forest", 1, true), "and the bar says where to go")
+    WorldMapFrame:SetMapID(E)
+    Click(GP.drawBar.finish)
+    check(not GP.drawing and not GP.drawBar:IsShown() and #(WorldMapFrame.__clickHandlers or {}) == 0,
+        "Finish keeps it and stops taking clicks")
+    check(#GP:Taboos(E) == 1 and #GP:Taboos(E)[1] == 8, "saved with its 4 corners")
+    check(GP.config:IsShown() and GP.config.currentTab == "taboo", "back on the Taboo areas tab")
+    check(ui.tabooRows[1]:IsShown() and ui.tabooRows[1].text:GetText():find("Area 1", 1, true)
+        and ui.tabooRows[1].text:GetText():find("4 corners, about 96 x 298 yards", 1, true), "listed with its size")
+    check(GP:Busy() or #(GP.queue or {}) > 0, "the zone's routes are worked out again")
+    RunJobs()
+    check(r1.nodes == before - 1 and r1.taboo == 1, "the node inside is left out")
+    check(logHas("1 node in taboo areas left out"), "and chat says so")
+    check(legsThrough(r1, E) == 0, "no leg goes through the area")
+    check(GP:NodeCount(r1) > r1.nodes, "it bends round its corners instead")
+    check(GP:InTaboo(E, 0.5, 0.45) and not GP:InTaboo(E, 0.4, 0.45) and not GP:InTaboo(W, 0.5, 0.45))
+    check(near(r1.length, GP:RouteLength(r1)), "the length is the way round")
+
+    -- on the world map: outline and hatching
+    GP:DrawWorldMap()
+    local hatch = #Shown(GP.provider.pin.taboo)
+    check(hatch > 4, "drawn red and hatched on the world map (" .. hatch .. " lines)")
+    Click(ui.tabooShow)
+    check(not GP.db.tabooShow and #Shown(GP.provider.pin.taboo) == 0, "or not")
+    Click(ui.tabooShow)
+    local spans = GP.HatchSpans({ 0, 100, 100, 0 }, { 0, 0, -100, -100 }, 4, 10)
+    check(#spans >= 18, "hatch lines across a square")
+    for _, sp in ipairs(spans) do
+        check(sp[1] >= -0.01 and sp[3] <= 100.01 and near(sp[1] + sp[2], sp[3] + sp[4]), "inside it, on the diagonal")
+    end
+
+    -- nodes found later
+    local stops = GP:NodeCount(r1)
+    gm:Add(E, "Herb Gathering", 1, 0.50, 0.50)
+    check(GP:NodeCount(r1) == stops, "a node found inside an area doesn't join")
+    gm:Add(E, "Herb Gathering", 1, 0.56, 0.35)
+    check(GP:NodeCount(r1) > stops and legsThrough(r1, E) == 0, "one outside does, going round")
+    gm:Delete(E, "Herb Gathering", 0.56, 0.35)
+    check(legsThrough(r1, E) == 0, "and when it's deleted the line still goes round")
+    gm:Delete(E, "Herb Gathering", 0.50, 0.50)
+
+    -- a node deleted between two stops on either side: they meet round the area
+    local hand = { id = 900, mapID = E, name = "By hand", kinds = { ["Herb Gathering"] = { Peacebloom = true } }, sight = 0,
+        color = { 1, 1, 1 }, shown = true, points = { 0.30, 0.45, 0.50, 0.75, 0.70, 0.45, 0.50, 0.15 } }
+    table.insert(GP.db.routes, hand)
+    check(legsThrough(hand, E) == 0, "(clear to start)")
+    gm:Add(E, "Herb Gathering", 1, 0.50, 0.75, true)
+    gm:Delete(E, "Herb Gathering", 0.50, 0.75)
+    check(GP:NodeCount(hand) > 3 and legsThrough(hand, E) == 0, "a deleted node's neighbours meet round the area")
+    -- a new node whose cheapest place is across the area: its leg bends round too
+    hand.points = { 0.30, 0.45, 0.50, 0.15 }
+    gm:Add(E, "Herb Gathering", 1, 0.70, 0.50)
+    check(GP:NodeCount(hand) > 3 and legsThrough(hand, E) == 0, "a new node's legs go round the area")
+    gm:Delete(E, "Herb Gathering", 0.70, 0.50)
+    GP:DeleteRoute(hand)
+
+    -- one whose edges cross is turned down; Cancel keeps nothing
+    check(not GP:AddTaboo(E, { 0.1, 0.1, 0.2, 0.2, 0.2, 0.1, 0.1, 0.2 }) and logHas("edges cross"), "a bow tie isn't an area")
+    check(not GP:AddTaboo(E, { 0.1, 0.1, 0.2, 0.2 }), "nor 2 corners")
+    GP:StartTaboo(E)
+    ClickMap("LeftButton", 0.1, 0.1); ClickMap("LeftButton", 0.2, 0.1); ClickMap("LeftButton", 0.2, 0.2)
+    Click(GP.drawBar.cancel)
+    check(not GP.drawing and #GP:Taboos(E) == 1 and #(WorldMapFrame.__clickHandlers or {}) == 0, "Cancel keeps nothing")
+    check(not ClickMap("RightButton"), "right-click on the map zooms out again")
+
+    -- saved, and junk dropped
+    GatherPathForeverDB.taboos[99] = { { 0.1, 0.1 }, "junk", { 0.1, 0.1, 0.2, "x", 0.3, 0.3 } }
+    GatherPathForeverDB.taboos.junk = { { 0.1, 0.1, 0.2, 0.1, 0.2, 0.2 } }
+    GP:LoadSettings()
+    check(#GP:Taboos(E) == 1 and GP.db.taboos[99] == nil and GP.db.taboos.junk == nil, "the area comes back, junk doesn't")
+
+    -- delete it from the tab
+    GP:OpenConfig("taboo")
+    Click(ui.tabooRows[1].del)
+    check(GP.confirmWindow:IsShown())
+    Click(GP.confirmWindow.yes)
+    check(#GP:Taboos(E) == 0 and GP.db.taboos[E] == nil, "deleted")
+    RunJobs()
+    check(r1.nodes == before and (r1.taboo or 0) == 0, "and the route takes the node in again")
+    check(not ui.tabooRows[1]:IsShown() and ui.tabooEmpty:GetText():find("No taboo areas", 1, true))
+
+    r1.points, r1.nodes, r1.length, r1.kinds, r1.sight, r1.taboo = kept.points, kept.nodes, kept.length, kept.kinds, kept.sight, nil
+    GP:OpenConfig("routes")
+end
 
 ---------------------------------------------------------------------------
 STEP("saved routes come back, and junk is dropped")
