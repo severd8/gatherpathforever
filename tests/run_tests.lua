@@ -1664,6 +1664,72 @@ do
 end
 
 ---------------------------------------------------------------------------
+STEP("minimap test (/gpf scantest)")
+do
+    local names = GP.TooltipNames("|TInterface\\Minimap\\Up:0|t |cffffffffSilverleaf|r\n Copper Vein \n\n")
+    check(#names == 2 and names[1] == "Silverleaf" and names[2] == "Copper Vein", "icons, colors and spaces stripped")
+    check(#GP.TooltipNames(nil) == 0)
+    -- a fake minimap: 140 wide at (500, 400), 200 yards to its edge; Copper Vein 20 px east, someone 30 px north
+    local saved = {}
+    for _, k in ipairs({ "UpdateMouseoverAtPoint", "SetUsingSoftCursor", "GetCenter", "GetEffectiveScale", "IsMouseOver" }) do
+        saved[k] = rawget(Minimap, k)
+    end
+    local hover, soft, calls = nil, nil, 0
+    Minimap.GetCenter = function() return 500, 400 end
+    Minimap.GetEffectiveScale = function() return 1 end
+    Minimap.IsMouseOver = function() return false end
+    Minimap.SetUsingSoftCursor = function(_, on) soft = on end
+    Minimap.UpdateMouseoverAtPoint = function(_, x, y) hover = { x, y }; calls = calls + 1 end
+    local oldRadius = C_Minimap.GetViewRadius
+    C_Minimap.GetViewRadius = function() return 200 end
+    local wasShown = Minimap.__shown
+    Minimap:Show()
+    C_TooltipInfo = { GetMinimapMouseover = function()
+        local dx, dy = hover[1] - 500, hover[2] - 400
+        if math.abs(dx - 20) <= 4 and math.abs(dy) <= 4 then
+            return { type = 1, lines = { { leftText = "|cffffffffCopper Vein|r" } } }
+        elseif math.abs(dx) <= 2 and math.abs(dy - 30) <= 2 then
+            return { lines = { { leftText = "Someone" } } }
+        end
+    end }
+    PLAYER.map = E
+    check(GP:ScanTest() == "works", "finds a node GatherMate2 knows")
+    check(logHas("Copper Vein (57 yd)") and logHas("it works"), "named, with how far")
+    check(soft == false and hover[1] == -10000, "soft cursor and the hover point put back")
+    check(calls > 900, "a grid over the whole minimap")
+    -- only other things
+    local real = C_TooltipInfo.GetMinimapMouseover
+    C_TooltipInfo.GetMinimapMouseover = function()
+        local d = real()
+        if d and d.type then return nil end
+        return d
+    end
+    check(GP:ScanTest() == "answers" and logHas("none of those are herb or ore"), "answers, but no nodes")
+    C_TooltipInfo.GetMinimapMouseover = function() return nil end
+    check(GP:ScanTest() == "nothing" and logHas("isn't letting addons read it"), "nothing answers")
+    C_TooltipInfo.GetMinimapMouseover = function() error("blocked") end
+    check(GP:ScanTest() == "nothing" and logHas("errors"), "errors are caught")
+    Minimap.UpdateMouseoverAtPoint = function() error("blocked") end
+    check(GP:ScanTest() == "nothing" and soft == false, "a blocked probe is caught")
+    Minimap.UpdateMouseoverAtPoint = function(_, x, y) hover = { x, y } end
+    Minimap.IsMouseOver = function() return true end
+    check(GP:ScanTest() == "mouse", "not with the mouse on the minimap")
+    Minimap.IsMouseOver = function() return false end
+    IN_COMBAT = true
+    check(GP:ScanTest() == "combat", "not in combat")
+    IN_COMBAT = false
+    C_TooltipInfo = nil
+    SlashCmdList.GATHERPATHFOREVER("scantest")
+    check(logHas("no way for addons to read the minimap"), "/gpf scantest on a client without it")
+    for k, v in pairs(saved) do Minimap[k] = v end
+    for _, k in ipairs({ "UpdateMouseoverAtPoint", "SetUsingSoftCursor", "GetCenter", "GetEffectiveScale", "IsMouseOver" }) do
+        if saved[k] == nil then rawset(Minimap, k, nil) end
+    end
+    C_Minimap.GetViewRadius = oldRadius
+    if not wasShown then Minimap:Hide() end
+end
+
+---------------------------------------------------------------------------
 STEP("saved routes come back, and junk is dropped")
 local saved = GatherPathForeverDB
 saved.routes[#saved.routes + 1] = "junk"

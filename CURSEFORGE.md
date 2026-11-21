@@ -69,6 +69,7 @@ Install it with the CurseForge app, or download the file and unzip it into your 
 | `/gpf tomtom` | Turn the TomTom waypoint on or off |
 | `/gpf hud` | Turn the HUD in the middle of the screen on or off |
 | `/gpf combine` | Combine GatherMate2 nodes saved more than once in the same place |
+| `/gpf scantest` | Test whether GatherPath can read the herb and ore dots on your minimap |
 
 ## Good to know
 

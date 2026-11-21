@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.16.1
+
+- New **/gpf scantest**: a quick test of whether the game lets GatherPath read the herb and ore dots on your minimap. If it can, a later version can show on the HUD which nodes are really up right now, not just the ones you picked. Thanks to RawG for the idea.
+  - To try it: stand near some herbs or ore with **Find Herbs** or **Find Minerals** on, keep the mouse off the minimap, and type **/gpf scantest** (not in combat). Chat lists what's on your minimap. Names in green are nodes GatherMate2 knows. If nothing shows up, the game isn't letting addons read the minimap right now.
+
 ## 1.16.0
 
 - The HUD now **stays up in combat**. If you'd rather it hid while you fight, switch off **Show in combat** on the **HUD** tab. Thanks to RawG for the idea.

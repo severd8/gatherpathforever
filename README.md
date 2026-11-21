@@ -74,6 +74,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 | `/gpf tomtom` | Turn the TomTom waypoint on or off |
 | `/gpf hud` | Turn the HUD in the middle of the screen on or off |
 | `/gpf combine` | Combine GatherMate2 nodes saved more than once in the same place |
+| `/gpf scantest` | Test whether GatherPath can read the herb and ore dots on your minimap |
 
 ## Good to know
 

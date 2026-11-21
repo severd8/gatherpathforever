@@ -2058,6 +2058,125 @@ function GatherPathForever_ToggleHud()
 end
 
 ---------------------------------------------------------------------------
+-- Minimap test (/gpf scantest, since 1.16.1): can we read the minimap's
+-- tracking dots? WoW: Forever's minimap can be asked what's under a point
+-- without the mouse (Minimap:UpdateMouseoverAtPoint, screen pixels) and
+-- C_TooltipInfo.GetMinimapMouseover gives the names its tooltip would show.
+-- One sweep of a grid over the minimap, then a report in chat, so we know
+-- whether live nodes on the HUD can work on today's client.
+---------------------------------------------------------------------------
+GP.SCAN_STEP = 4   -- pixels between the points read
+
+-- A tooltip line's names: one per line, without icons, colors or spaces round them
+function GP.TooltipNames(text)
+    local names = {}
+    if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then return names end
+    for line in text:gmatch("[^\n]+") do
+        line = line:gsub("|T.-|t", ""):gsub("|A.-|a", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        line = line:match("^%s*(.-)%s*$")
+        if line ~= "" then names[#names + 1] = line end
+    end
+    return names
+end
+
+function GP:ScanTest()
+    local probe = Minimap and Minimap.UpdateMouseoverAtPoint
+    local read = C_TooltipInfo and C_TooltipInfo.GetMinimapMouseover
+    if type(probe) ~= "function" or type(read) ~= "function" then
+        Print("minimap test: this client has no way for addons to read the minimap. Live nodes can't work.")
+        return "noapi"
+    end
+    if InCombatLockdown and InCombatLockdown() then
+        Print("minimap test: try again out of combat.")
+        return "combat"
+    end
+    if not Minimap:IsVisible() then
+        Print("minimap test: show your minimap first.")
+        return "hidden"
+    end
+    if Minimap:IsMouseOver() then
+        Print("minimap test: move the mouse off the minimap, then try again.")
+        return "mouse"
+    end
+    local cx, cy = Minimap:GetCenter()
+    if not cx then return "hidden" end
+    local scale = Minimap:GetEffectiveScale()
+    local half = Minimap:GetWidth() / 2 - 2
+    local radius = C_Minimap and C_Minimap.GetViewRadius and C_Minimap.GetViewRadius()
+    local soft = type(Minimap.SetUsingSoftCursor) == "function"
+    if soft then pcall(Minimap.SetUsingSoftCursor, Minimap, true) end
+    local points, answered, secret, failed = 0, 0, 0, 0
+    local found, order = {}, {}
+    local start = debugprofilestop and debugprofilestop() or 0
+    local step = self.SCAN_STEP
+    for oy = -half, half, step do
+        for ox = -half, half, step do
+            if ox * ox + oy * oy <= half * half then
+                points = points + 1
+                if pcall(probe, Minimap, (cx + ox) * scale, (cy + oy) * scale) then
+                    local ok, data = pcall(read)
+                    if not ok then
+                        failed = failed + 1
+                    elseif data and issecretvalue and issecretvalue(data) then
+                        secret = secret + 1
+                    elseif type(data) == "table" and type(data.lines) == "table" and #data.lines > 0 then
+                        answered = answered + 1
+                        for _, l in ipairs(data.lines) do
+                            for _, name in ipairs(GP.TooltipNames(l.leftText)) do
+                                local f = found[name]
+                                if not f then f = { n = 0, x = 0, y = 0 }; found[name] = f; order[#order + 1] = name end
+                                f.n, f.x, f.y = f.n + 1, f.x + ox, f.y + oy
+                            end
+                            if l.leftText and issecretvalue and issecretvalue(l.leftText) then secret = secret + 1 end
+                        end
+                    end
+                else
+                    failed = failed + 1
+                end
+            end
+        end
+    end
+    pcall(probe, Minimap, -10000, -10000)
+    if soft then pcall(Minimap.SetUsingSoftCursor, Minimap, false) end
+    local ms = (debugprofilestop and debugprofilestop() or 0) - start
+
+    -- the names GatherMate2 knows in your zone
+    local known = {}
+    local mapID = C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    if mapID and self:HasGatherMate() then
+        for _, kind in ipairs(self.KINDS) do
+            self:EachNode(mapID, kind, function(_, _, name) known[name] = true end)
+        end
+    end
+    Print(("minimap test: read %d points in %d ms; %d answered, %d hidden from addons, %d errors.")
+        :format(points, ms, answered, secret, failed))
+    if #order == 0 then
+        Print("nothing found. If Find Herbs or Find Minerals is on and there are dots on your minimap, the game "
+            .. "isn't letting addons read it right now, so live nodes can't work yet.")
+        return "nothing"
+    end
+    local parts, nodes = {}, 0
+    for _, name in ipairs(order) do
+        local f = found[name]
+        local text = name
+        if radius and half > 0 then
+            local px = sqrt((f.x / f.n) ^ 2 + (f.y / f.n) ^ 2)
+            text = ("%s (%d yd)"):format(name, floor(px * radius / (half + 2) + 0.5))
+        end
+        if known[name] then text = "|cff60ff60" .. text .. "|r"; nodes = nodes + 1 end
+        parts[#parts + 1] = text
+    end
+    Print("on your minimap: " .. table.concat(parts, ", "))
+    if nodes > 0 then
+        Print("it works: green names are nodes GatherMate2 knows here, so live nodes on the HUD can work.")
+        return "works"
+    end
+    Print("the minimap answers, but none of those are herb or ore nodes GatherMate2 knows here. "
+        .. "Turn on Find Herbs or Find Minerals near some nodes and try again.")
+    return "answers"
+end
+
+---------------------------------------------------------------------------
 -- TomTom waypoint (optional): TomTom's arrow points at the nearest stop of
 -- the nearest route showing in your zone, then at each next stop the way the
 -- arrows go, moving on once you're within TOMTOM_ARRIVE yards.
@@ -2301,6 +2420,8 @@ SlashCmdList.GATHERPATHFOREVER = function(msg)
         GP:ToggleTomTom()
     elseif cmd == "hud" then
         GP:ToggleHud()
+    elseif cmd == "scantest" then
+        GP:ScanTest()
     elseif cmd == "combine" or cmd == "cleanup" then
         GP:CombineDuplicates()
     elseif cmd == "show" or cmd == "hide" then
