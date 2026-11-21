@@ -55,7 +55,7 @@ Install it with the CurseForge app, or download the file and unzip it into your 
 | **Routes** | The routes in a zone: color, name (click to rename), Edit, Rebuild, Delete, nodes, length in yards, time for a lap, show |
 | **New route** | Zone, the nodes GatherMate2 knows there (with Select all for each kind; right-click one to skip it), name, route passes within, lap time, Make route. Starts blank each time; Edit fills it in from a route |
 | **Taboo areas** | Zone, Draw a taboo area, show them on the world map (red, hatched), and each area in the zone with its size, Show and Delete |
-| **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; direction arrows (on or off, reversed), line to the route, TomTom waypoint; the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button; Restore defaults puts them all back |
+| **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; direction arrows (on or off, reversed), line to the route, TomTom waypoint; the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button; Restore defaults puts them all back; Combine duplicate nodes (GatherMate2 nodes saved twice in one place) |
 | **HUD** | The HUD in the middle of the screen: on or off, turn with you or north up, show nodes, show in combat, size, zoom, opacity, height, picked nodes |
 
 ### Commands
