@@ -165,6 +165,7 @@ function GP:LoadSettings()
             r.color = type(r.color) == "table" and r.color or { 1, 0.82, 0 }
             if r.shown == nil then r.shown = true end
             if not r.id then r.id = db.nextID; db.nextID = db.nextID + 1 end
+            if not (type(r.minutes) == "number" and r.minutes > 0) then r.minutes, r.allNodes = nil, nil end
             r.merge = nil   -- gone in 1.3.0: "route passes within" groups nearby nodes itself
         end
     end
@@ -530,6 +531,52 @@ function GP:PumpQueue()
     end
 end
 
+-- Timed runs (since 1.15.0): route.minutes (5-60; nil = the whole zone).
+-- The yards it may be: that many minutes at your speed (GP:Speed()).
+function GP:RunYards(route)
+    local m = route.minutes
+    if not (type(m) == "number" and m > 0) then return nil end
+    return m * 60 * self:Speed()
+end
+
+local function LoopYards(stops)
+    local total, n = 0, #stops
+    for i = 1, n > 1 and n or 0 do total = total + O.Euclid(stops[i], stops[i % n + 1]) end
+    return total
+end
+
+-- The busiest loop through pts (yards) no longer than maxLen, passing within
+-- sight: O.Budget picks the nodes, Shortcut and Expand make the loop. With
+-- sight (or taboo areas) the real loop differs from Budget's estimate, so the
+-- budget is scaled and tried again (TIMED_TRIES), keeping the one with the
+-- most nodes that fits. Returns the nodes used and the stops.
+GP.TIMED_TRIES = 4
+GP.RUN_MINUTES = { 0, 60, 5 }   -- New route's Lap time slider: min, max, step (0 = whole zone)
+function GP.TimedLoop(pts, maxLen, sight)
+    local budget = maxLen
+    local bestPts, bestStops, smallPts, smallStops, smallLen
+    for _ = 1, GP.TIMED_TRIES do
+        local sub = O.Budget(pts, budget, sight)
+        local stops = O.Expand(O.Shortcut(sub, sight))
+        local len = LoopYards(stops)
+        if len <= maxLen + 0.5 then
+            if not bestPts or #sub > #bestPts then bestPts, bestStops = sub, stops end
+            if #sub == #pts or len >= maxLen * 0.93 then break end
+        elseif not smallLen or len < smallLen then
+            smallPts, smallStops, smallLen = sub, stops, len
+        end
+        budget = budget * maxLen / math.max(len, 1) * (len > maxLen and 0.97 or 1)
+    end
+    if bestPts then return bestPts, bestStops end
+    return smallPts, smallStops   -- nothing fitted: the shortest it found
+end
+
+-- " A 10 min run: the busiest 40 of 200 nodes." for chat
+function GP:TimedNote(route)
+    if not (route.minutes and route.allNodes) then return "" end
+    return (" A %d min run: the busiest %d of %d nodes."):format(route.minutes, route.nodes or 0, route.allNodes)
+end
+
 -- Reads the route's nodes from GatherMate2 and finds the shortest loop.
 -- Runs inside a job (it pauses now and then). Returns how many nodes it read.
 local function Build(route)
@@ -542,8 +589,16 @@ local function Build(route)
         if not (walls and walls:Inside(q)) then pts[#pts + 1] = q end   -- none from inside a taboo area
     end
     O.SetWalls(walls)
-    local stops = O.Expand(O.Shortcut(pts, route.sight or 0))
+    local stops
+    local all = #pts
+    local maxLen = GP:RunYards(route)
+    if maxLen then
+        pts, stops = GP.TimedLoop(pts, maxLen, route.sight or 0)
+    else
+        stops = O.Expand(O.Shortcut(pts, route.sight or 0))
+    end
     O.SetWalls(nil)
+    route.allNodes = maxLen and all or nil   -- timed run: how many there were to pick from
     local flat = {}
     for _, p in ipairs(stops) do
         flat[#flat + 1] = Round(p[1] / w)
@@ -665,7 +720,7 @@ function GP:AnyPicked(kinds)
     return false
 end
 
--- opts: mapID, kinds = { [kind] = { [name] = true } }, name, sight
+-- opts: mapID, kinds = { [kind] = { [name] = true } }, name, sight, minutes (timed run; 0/nil = whole zone)
 function GP:NewRoute(opts)
     if not self:HasGatherMate() then
         Print("needs GatherMate2, where the nodes come from.")
@@ -691,6 +746,7 @@ function GP:NewRoute(opts)
         name = name,
         kinds = opts.kinds,
         sight = opts.sight or 0,
+        minutes = (opts.minutes or 0) > 0 and opts.minutes or nil,
         color = { unpack(self.COLORS[(self.db.nextColor - 1) % #self.COLORS + 1]) },
         shown = true,
         points = {},
@@ -708,7 +764,7 @@ function GP:NewRoute(opts)
             return
         end
         Print(("made |cffffd100%s|r in %s: %d nodes, %s round.%s"):format(route.name, self:MapName(route.mapID),
-            self:RouteNodes(route), self.FormatYards(route.length), self:TabooNote(route)))
+            self:RouteNodes(route), self.FormatYards(route.length), self:TimedNote(route) .. self:TabooNote(route)))
         self:Changed()
     end)
     return route
@@ -735,7 +791,7 @@ function GP:RebuildRoute(route)
             local after = self:RouteNodes(route)
             Print(("%s: %d nodes (%s), %s round.%s"):format(route.name, after,
                 after == before and "no change" or ((after > before and "+" or "") .. (after - before)),
-                self.FormatYards(route.length), self:TabooNote(route)))
+                self.FormatYards(route.length), self:TimedNote(route) .. self:TabooNote(route)))
         end
         self:Changed()
     end)
@@ -764,19 +820,21 @@ function GP:EditRoute(route, opts)
         return false
     end
     local old = { mapID = route.mapID, name = route.name, kinds = route.kinds,
-        sight = route.sight, points = route.points, nodes = route.nodes, length = route.length }
+        sight = route.sight, points = route.points, nodes = route.nodes, length = route.length,
+        minutes = route.minutes or false, allNodes = route.allNodes or false }
     route.mapID, route.name, route.kinds = mapID, name, opts.kinds
     route.sight = opts.sight or 0
+    route.minutes = (opts.minutes or 0) > 0 and opts.minutes or nil
     route.working = true
     self:RunJob(function() return Build(route) end, function(read)
         route.working = nil
         if self:NodeCount(route) < 2 then
-            for k, v in pairs(old) do route[k] = v end
+            for k, v in pairs(old) do route[k] = v or nil end
             Print("GatherMate2 has " .. (read == 1 and "only one" or "no") .. " node of those kinds in "
                 .. self:MapName(mapID) .. ", so " .. route.name .. " was left as it was.")
         else
             Print(("changed |cffffd100%s|r in %s: %d nodes, %s round.%s"):format(route.name, self:MapName(route.mapID),
-                self:RouteNodes(route), self.FormatYards(route.length), self:TabooNote(route)))
+                self:RouteNodes(route), self.FormatYards(route.length), self:TimedNote(route) .. self:TabooNote(route)))
         end
         self:Changed()
     end)
@@ -824,7 +882,8 @@ function GP:AddNode(mapID, kind, x, y, name)
     if walls and walls:Inside({ x * w, y * h }) then return 0 end   -- in a taboo area
     local added = 0
     for _, route in ipairs(self:RoutesOn(mapID)) do
-        if not route.working and route.kinds[kind] and route.kinds[kind][name] then
+        -- (a timed run keeps to its time: new nodes join it on Rebuild, if they fit)
+        if not route.working and not route.minutes and route.kinds[kind] and route.kinds[kind][name] then
             local p, n = route.points, self:NodeCount(route)
             local near, sight = 5, route.sight or 0
             local c = { x * w, y * h }

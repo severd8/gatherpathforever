@@ -221,6 +221,7 @@ local function BuildRoutes(p)
                 -- two short lines, so nothing is cut off
                 local line2 = "\n" .. GP:LapTime(route):gsub("^%l", string.upper) .. " a lap"
                     .. (GP.db.speed and "" or " on foot")
+                    .. (route.minutes and (" (" .. route.minutes .. " min run)") or "")
                     .. ((route.sight or 0) > 0 and ("  -  passes within " .. route.sight .. " yards") or "")
                 r.info:SetText(("%d nodes  -  %s round  -  %s%s"):format(GP:RouteNodes(route),
                     GP.FormatYards(route.length or GP:RouteLength(route)), table.concat(kinds, ", "), line2))
@@ -246,6 +247,7 @@ end
 -- What's picked. Opening the tab starts it blank (ResetNew); Edit fills it
 -- from a route (EditInWindow) and Save changes that route.
 local newZone, picked, newSight, editing = nil, {}, nil, nil
+local newMinutes = 0   -- timed run: minutes a lap (0 = the whole zone)
 local nameBox
 local prefixZone   -- the zone whose "Zone - " the name box was started with
 
@@ -262,11 +264,13 @@ local function Sight() return newSight or GP.DEFAULTS.sight end
 
 local function ResetNew()
     newZone, picked, newSight, editing, prefixZone = nil, {}, nil, nil, nil
+    newMinutes = 0
     if nameBox then nameBox:SetText(""); nameBox:ClearFocus() end
 end
 
 local function EditInWindow(route)
     newZone, newSight, editing, prefixZone = route.mapID, route.sight or 0, route, route.mapID
+    newMinutes = route.minutes or 0
     picked = {}
     for kind, names in pairs(route.kinds) do
         for n in pairs(names) do
@@ -315,7 +319,7 @@ local function BuildNew(p, page)
     refs.kindSwitches = switches
     refs.kindHeads = heads
 
-    -- below the list: name, passes within, make (or save and cancel)
+    -- below the list: name, passes within, lap time, make (or save and cancel)
     local y = -34 - LIST_H - 14
     T.RowLabel(p, "Name", 0, y)
     local name = T.EditBox(p, 300)
@@ -352,6 +356,16 @@ local function BuildNew(p, page)
     AddRefresher(sight.Refresh)
     refs.sightSlider = sight
 
+    local rm = GP.RUN_MINUTES
+    local minutes = T.Slider(p, "Lap time", 0, y - 80, 300, function() return newMinutes end,
+        function(v) newMinutes = v end, rm[1], rm[2], " min", rm[3], nil, "Whole zone")
+    T.Tooltip(minutes, "Lap time",
+        "For a shorter run: pick how long one lap should take, and the route goes round the busiest part "
+        .. "of the zone, with as many of your nodes as fit in that time. Riding time at your mount's speed "
+        .. "(on foot until you've ridden), not counting stops to gather. Whole zone takes in every node.")
+    AddRefresher(minutes.Refresh)
+    refs.minutesSlider = minutes
+
     local make = FlatButton(p, "Make route", 130, 26)
     make:SetPoint("TOPRIGHT", 0, y - 40)
     refs.makeButton = make
@@ -368,7 +382,7 @@ local function BuildNew(p, page)
         end
         local typed = name:GetText()
         if OnlyPrefix(typed, newZone) then typed = Prefix(newZone) .. GP:RouteName(newZone, kinds) end
-        local opts = { mapID = newZone, kinds = kinds, name = typed, sight = Sight() }
+        local opts = { mapID = newZone, kinds = kinds, name = typed, sight = Sight(), minutes = newMinutes }
         local route
         if editing then
             route = GP:EditRoute(editing, opts) and editing

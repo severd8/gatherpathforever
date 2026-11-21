@@ -178,6 +178,80 @@ do
 end
 
 ---------------------------------------------------------------------------
+STEP("timed runs in the solver")
+do
+    local function Loop(ps)
+        local t, n = 0, #ps
+        for i = 1, n do t = t + O.Euclid(ps[i], ps[i % n + 1]) end
+        return t
+    end
+    -- a busy patch (30 nodes in 120 x 120 yards) far from 30 nodes spread over 2000 x 2000
+    local rnd = 12345
+    local function R() rnd = (rnd * 1103515245 + 12345) % 2147483648; return rnd / 2147483648 end
+    local pts, busy = {}, {}
+    for i = 1, 30 do local p = { 3000 + R() * 120, 3000 + R() * 120 }; pts[#pts + 1] = p; busy[p] = true end
+    for i = 1, 30 do pts[#pts + 1] = { R() * 2000, R() * 2000 } end
+    local groups = O.Group(pts, 50)
+    local members = 0
+    for _, g in ipairs(groups) do members = members + #g.members; check(#g.members == g.count) end
+    check(members == #pts, "every node is in one group's members")
+    -- 800 yards: room for the patch, nothing like the whole field
+    local sub, k, len = O.Budget(pts, 800, 0)
+    check(k == #sub and k >= 25, "most of the busy patch fits")
+    local inPatch = 0
+    for _, p in ipairs(sub) do if busy[p] then inPatch = inPatch + 1 end end
+    check(inPatch == k, "only nodes from the busy patch")
+    check(len <= 800, "the loop fits the time")
+    local solved = {}
+    for i, p in ipairs(sub) do solved[i] = p end
+    local t = O.Solve(solved)
+    check(O.Length(solved, t) <= 800 + 1e-6, "and so does the solved loop")
+    -- on a spread field too, every budget's nodes make a loop that fits it
+    local spread = {}
+    for i = 1, 120 do spread[i] = { R() * 1500, R() * 1500 } end
+    for _, L in ipairs({ 300, 600, 1200, 2400 }) do
+        local s1, k1, l1 = O.Budget(spread, L, 0)
+        local idx = {}
+        for i = 1, #s1 do idx[i] = i end
+        check(l1 <= L and k1 >= 3, L .. " yards: fits")
+        check(O.Length(s1, O.Solve(s1)) <= l1 + 1e-6, "its length is the loop's (" .. L .. ")")
+    end
+    local sub2 = O.Budget(pts, 800, 0)
+    check(#sub2 == #sub, "the same nodes every time")
+    -- with passes within
+    local subS = O.Budget(pts, 400, 100)
+    local stops = O.Shortcut(subS, 100)
+    check(#subS >= 25 and Loop(stops) <= 400, "passes within: the patch in a short loop")
+    -- the whole field fits a big budget
+    local all, n = O.Budget(pts, 1e7, 0)
+    check(n == #pts and all[1], "a long enough time takes every node")
+    -- more time, more nodes
+    local _, kSmall = O.Budget(pts, 300, 0)
+    local _, kBig = O.Budget(pts, 3000, 0)
+    check(kSmall < k and k <= kBig, "more time takes in more nodes")
+    check(#O.Budget({ { 0, 0 } }, 100, 0) == 1, "one node: nothing to do")
+    -- worth the ride: 6 nodes together 150 yards off beat 6 singles strung out close by
+    local fieldA, far = {}, {}
+    for i = 1, 12 do fieldA[#fieldA + 1] = { (i % 4) * 3, math.floor(i / 4) * 3 } end
+    for i = 1, 6 do local p = { 150 + (i % 3) * 3, (i % 2) * 3 }; fieldA[#fieldA + 1] = p; far[p] = true end
+    for i = 1, 6 do fieldA[#fieldA + 1] = { -5, -60 * i } end
+    O.BUDGET_SEEDS = 1   -- grown from the busiest patch only
+    local subA = O.Budget(fieldA, 330, 40)
+    O.BUDGET_SEEDS = 8
+    local got = 0
+    for _, p in ipairs(subA) do if far[p] then got = got + 1 end end
+    check(got == 6 and #subA >= 18, "the most nodes per yard ridden, not just the nearest")
+    -- the busiest patch is found even when it's listed last among many
+    local patches = {}
+    for pi = 1, 12 do
+        local size = pi == 12 and 15 or 3
+        for i = 1, size do patches[#patches + 1] = { pi * 1000 + (i % 4) * 5, (i % 3) * 5 } end
+    end
+    local _, kP = O.Budget(patches, 200, 0)
+    check(kP == 15, "the busiest of a dozen patches")
+end
+
+---------------------------------------------------------------------------
 STEP("taboo areas in the solver")
 do
     -- a tall block in the middle of a 1000 x 1000 field
@@ -1284,6 +1358,80 @@ do
 end
 
 ---------------------------------------------------------------------------
+STEP("timed runs")
+do
+    local speedWas = GP.db.speed
+    GP.db.speed = 1.5   -- 1.5 yards a second: 5 minutes is 450 yards
+    -- the slider on New route
+    GP:OpenConfig("new")
+    Click(ui.myZone)
+    check(ui.minutesSlider and ui.minutesSlider:GetValue() == 0, "Lap time starts on the whole zone")
+    check(ui.minutesSlider.valueText:GetText() == "Whole zone")
+    Click(SwitchFor("Peacebloom"))
+    Click(SwitchFor("Silverleaf"))
+    ui.sightSlider:SetValue(0)
+    ui.minutesSlider:SetValue(5)
+    check(ui.minutesSlider.valueText:GetText() == "5 min")
+    ui.newName:SetText("Short run")
+    Click(ui.makeButton)
+    RunJobs()
+    local run
+    for _, r in ipairs(GP.db.routes) do if r.name == "Short run" then run = r end end
+    check(run and run.minutes == 5, "made with its time")
+    local total = #GP:CollectNodes(E, run.kinds)
+    check(run.allNodes == total and run.nodes >= 3 and run.nodes < total, "some of the nodes, not all")
+    check(run.length <= 450 + 1, "a lap fits 5 minutes")
+    check(logHas("A 5 min run: the busiest " .. run.nodes .. " of " .. total .. " nodes."), "chat says so")
+    GP:OpenConfig("routes")
+    -- New route opens blank again, Edit fills it in
+    GP:OpenConfig("new")
+    check(ui.minutesSlider:GetValue() == 0, "blank again")
+    GP:EditRouteInWindow(run)
+    check(ui.minutesSlider:GetValue() == 5, "Edit shows its time")
+    -- more time: more nodes
+    ui.minutesSlider:SetValue(20)
+    Click(ui.makeButton)
+    RunJobs()
+    check(run.minutes == 20 and run.nodes == total and run.allNodes == total, "20 minutes: every node fits")
+    local whole = run.length
+    -- back to the whole zone
+    GP:EditRouteInWindow(run)
+    ui.minutesSlider:SetValue(0)
+    Click(ui.makeButton)
+    RunJobs()
+    check(run.minutes == nil and run.allNodes == nil and run.nodes == total, "Whole zone: no time")
+    check(near(run.length, whole, 1), "the same loop as a long enough timed one")
+    -- rebuild keeps the time
+    GP:EditRoute(run, { kinds = run.kinds, name = run.name, sight = 0, minutes = 5 })
+    RunJobs()
+    local n5 = run.nodes
+    GP:RebuildRoute(run)
+    RunJobs()
+    check(run.minutes == 5 and run.nodes == n5 and run.length <= 451, "Rebuild keeps it a 5 min run")
+    -- new nodes don't stretch a timed run
+    local before = #run.points
+    gm:Add(E, "Herb Gathering", 1, 0.405, 0.30)
+    check(#run.points == before, "a node found later waits for Rebuild")
+    gm:Delete(E, "Herb Gathering", 0.405, 0.30)
+    -- a failed edit puts the time back
+    local kinds = run.kinds
+    GP:EditRoute(run, { kinds = { Mining = { ["Tin Vein"] = true } }, name = run.name, sight = 0, minutes = 0 })
+    RunJobs()
+    check(run.minutes == 5 and run.kinds == kinds, "no loop: the route stays a 5 min run")
+    -- the Routes row says so
+    GP:OpenConfig("routes")
+    local found = false
+    for _, row in ipairs(ui.routeRows or {}) do
+        local t = row.info and row.info:GetText() or ""
+        if t:find("(5 min run)", 1, true) then found = true end
+    end
+    check(found, "the row shows (5 min run)")
+    GP:DeleteRoute(run)
+    GP.db.speed = speedWas
+    GP:Changed()
+end
+
+---------------------------------------------------------------------------
 STEP("taboo areas")
 do
     local r1 = GP.db.routes[1]
@@ -1447,6 +1595,12 @@ check(mc[1] == 1 and mc[2] == 0 and mc[3] == 0.5, "a color is kept between 0 and
 saved.alpha = 30
 GP:LoadSettings()
 check(GP.db.worldAlpha == 50, "but only once")
+GP.db.routes[1].minutes, GP.db.routes[1].allNodes = 10, 40
+GP:LoadSettings()
+check(GP.db.routes[1].minutes == 10 and GP.db.routes[1].allNodes == 40, "a timed run keeps its time")
+GP.db.routes[1].minutes = "junk"
+GP:LoadSettings()
+check(GP.db.routes[1].minutes == nil and GP.db.routes[1].allNodes == nil, "a broken time: the whole zone")
 
 STEP("without GatherMate2")
 GatherMate2 = nil

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15.0
+
+- New **timed runs**, for when you don't have time for a whole zone. On the **New route** tab, set **Lap time** to how long one lap should take (5 to 60 minutes). GatherPath finds the busiest part of the zone and makes a loop through as many of your nodes as fit in that time, instead of one big loop that takes 50 minutes. Thanks to RawG for the idea.
+- The time is riding time at your mount's speed (on foot until you've ridden one), not counting stops to gather. Chat tells you how many of the zone's nodes the run takes in, and the Routes tab shows "(10 min run)" beside its lap time.
+- **Edit** a route to change its lap time, or slide it all the way left (**Whole zone**) to go back to every node. **Rebuild** keeps the time.
+- Nodes GatherMate2 finds later don't stretch a timed run past its time: they join it the next time you **Rebuild** it, if they fit.
+
 ## 1.14.0
 
 - New **HUD** in the middle of the screen: a see-through round map round your character with your route's line, its direction arrows, the line to the route and your herb and ore nodes as colored dots (green herbs, orange ore). It turns with you, so straight up on the HUD is straight ahead, and you can follow a route without looking down at the minimap. Thanks to RawG for the idea.

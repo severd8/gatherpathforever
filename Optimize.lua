@@ -360,11 +360,11 @@ end
 -- the first one not yet in a group; its spot is their middle, or that first
 -- node if the middle would leave one further than `radius` away. So every node
 -- is within `radius` of its spot. Returns the spots; each has .count (nodes in
--- it) and .reach (yards to its furthest node).
+-- it), .reach (yards to its furthest node) and .members (its nodes).
 function O.Group(points, radius)
     local out = {}
     if not radius or radius <= 0 then
-        for i, p in ipairs(points) do out[i] = { p[1], p[2], count = 1, reach = 0 } end
+        for i, p in ipairs(points) do out[i] = { p[1], p[2], count = 1, reach = 0, members = { p } } end
         return out
     end
     local used = {}
@@ -395,7 +395,7 @@ function O.Group(points, radius)
                 return false
             end
             if reach > radius or Walled(spot) then spot, reach = { p[1], p[2] }, Reach(p) end
-            spot.count, spot.reach = #group, reach
+            spot.count, spot.reach, spot.members = #group, reach, group
             out[#out + 1] = spot
         end
     end
@@ -799,6 +799,147 @@ function O.Shortcut(nodes, radius)
         end
     end
     return stops
+end
+
+---------------------------------------------------------------------------
+-- Timed runs (since 1.15.0): the busiest loop no longer than maxLen yards.
+-- The nodes are grouped as Shortcut groups them (radius / 2). A few busy
+-- seeds are picked (the most nodes within maxLen / 2pi, the radius of a
+-- circle that long round, spread at least that far apart). From each, a loop
+-- grows by cheapest insertion, each time taking the group that brings the
+-- most nodes per extra yard while the loop still fits; then the loop is
+-- solved again (shorter) and grows on, up to GROW_ROUNDS times. The seed
+-- whose loop holds the most nodes wins. Returns its nodes (a subset of
+-- `nodes`, the same tables), how many and the loop's length through the
+-- groups. All of them if the whole loop fits.
+---------------------------------------------------------------------------
+O.BUDGET_SEEDS = 8
+local GROW_ROUNDS = 3
+
+local function Grow(spots, seed, maxLen)
+    local n = #spots
+    local reach = maxLen / 2
+    local s0 = spots[seed]
+    local nxt = { [seed] = seed }
+    local inTour = { [seed] = true }
+    local length, total, size = 0, s0.count, 1
+    -- each candidate's cheapest place: after spot bestU[c], adding bestC[c] yards
+    local cands, bestU, bestC = {}, {}, {}
+    local function Full(c)
+        local p = spots[c]
+        local u, bc, bu = seed, math.huge, seed
+        repeat
+            local v = nxt[u]
+            local cost = Dist(spots[u], p) + Dist(p, spots[v]) - Dist(spots[u], spots[v])
+            if cost < bc then bc, bu = cost, u end
+            u = v
+        until u == seed
+        bestU[c], bestC[c] = bu, bc
+        Step(size)
+    end
+    for c = 1, n do
+        if c ~= seed and Euclid(s0, spots[c]) <= reach then
+            cands[#cands + 1] = c
+            Full(c)
+        end
+    end
+    Step(n)
+    for round = 1, GROW_ROUNDS do
+        local added = 0
+        while true do
+            local pick, ratio = nil, -1
+            for _, c in ipairs(cands) do
+                if not inTour[c] and length + bestC[c] <= maxLen then
+                    local r = spots[c].count / (bestC[c] + 1)
+                    if r > ratio then pick, ratio = c, r end
+                end
+            end
+            Step(#cands)
+            if not pick then break end
+            local u = bestU[pick]
+            local v = nxt[u]
+            nxt[u], nxt[pick] = pick, v
+            inTour[pick] = true
+            length = length + bestC[pick]
+            total = total + spots[pick].count
+            size = size + 1
+            added = added + 1
+            local P = spots[pick]
+            for _, c in ipairs(cands) do
+                if not inTour[c] then
+                    if bestU[c] == u then
+                        Full(c)   -- its best leg is gone
+                    else
+                        local q = spots[c]
+                        local c1 = Dist(spots[u], q) + Dist(q, P) - Dist(spots[u], P)
+                        local c2 = Dist(P, q) + Dist(q, spots[v]) - Dist(P, spots[v])
+                        if c1 < bestC[c] then bestU[c], bestC[c] = u, c1 end
+                        if c2 < bestC[c] then bestU[c], bestC[c] = pick, c2 end
+                    end
+                end
+            end
+            Step(#cands * 2)
+        end
+        if added == 0 or round == GROW_ROUNDS or size < 4 then break end
+        -- find the best order for what's in, then grow on from the shorter loop
+        local list, back = {}, {}
+        local u = seed
+        repeat list[#list + 1] = spots[u]; back[#list] = u; u = nxt[u] until u == seed
+        local tour = O.Solve(list)
+        local newLen = O.Length(list, tour)
+        if newLen >= length - 1 then break end
+        length = newLen
+        nxt = {}
+        for i = 1, #tour do nxt[back[tour[i]]] = back[tour[i % #tour + 1]] end
+        seed = back[tour[1]]
+        size = #tour
+        for _, c in ipairs(cands) do if not inTour[c] then Full(c) end end
+    end
+    local chosen = {}
+    for c in pairs(inTour) do chosen[#chosen + 1] = c end
+    table.sort(chosen)
+    return chosen, total, length
+end
+
+function O.Budget(nodes, maxLen, radius)
+    if #nodes < 2 or not maxLen or maxLen <= 0 then return nodes, #nodes, 0 end
+    local spots = O.Group(nodes, (radius or 0) > 0 and radius / 2 or 0)
+    local n = #spots
+    -- busiest seeds: nodes within a circle maxLen round
+    local R = maxLen / (2 * math.pi)
+    local busy = {}
+    for i = 1, n do
+        local c = 0
+        for j = 1, n do
+            if Euclid(spots[i], spots[j]) <= R then c = c + spots[j].count end
+        end
+        busy[i] = c
+        Step(n)
+    end
+    local order = {}
+    for i = 1, n do order[i] = i end
+    table.sort(order, function(a, b) if busy[a] ~= busy[b] then return busy[a] > busy[b] end return a < b end)
+    local seeds = {}
+    for _, i in ipairs(order) do
+        local apart = true
+        for _, s in ipairs(seeds) do
+            if Euclid(spots[i], spots[s]) < R then apart = false break end
+        end
+        if apart then seeds[#seeds + 1] = i end
+        if #seeds >= O.BUDGET_SEEDS then break end
+    end
+    local best, bestTotal, bestLen
+    for _, seed in ipairs(seeds) do
+        local chosen, total, len = Grow(spots, seed, maxLen)
+        if not best or total > bestTotal or (total == bestTotal and len < bestLen) then
+            best, bestTotal, bestLen = chosen, total, len
+        end
+    end
+    local out = {}
+    for _, i in ipairs(best) do
+        for _, p in ipairs(spots[i].members) do out[#out + 1] = p end
+    end
+    return out, #out, bestLen
 end
 
 -- Where a new point costs least to add to a tour: it goes after tour[at].

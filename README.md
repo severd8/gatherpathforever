@@ -17,6 +17,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **Routes from your GatherMate2 nodes.** Pick a zone and the kinds of node you gather (herbs, ore, fishing pools, treasure), and GatherPath finds the shortest loop through all of them.
 - **On the world map**, on the zone's map and thinner on the continent's, and **on the minimap**, round you, turning with it if your minimap turns.
 - **As many routes as you like**, several per zone, each with its own color. Show or hide each one, rename it, edit it, or delete it.
+- **Timed runs**: short on time? Pick a **Lap time** (5 to 60 minutes) on New route, and the route goes round the busiest part of the zone with as many of your nodes as fit in that time at your mount's speed, instead of a loop through the whole zone.
 - **Skip list** for nodes you never want, like Poor Copper Ore or Wilted Peacebloom: right-click one on the New route tab and no route uses it, in any zone.
 - **Taboo areas**: draw an area on the world map, like the mountains in Eastern Plaguelands, and your routes stay out of it. Nodes inside it are left out, and the line goes round it instead of over it.
 - **Routes that grow.** When GatherMate2 records a node you just found, it joins the routes in that zone that have its kind, where it adds the least walking. **Rebuild** reads every node again and finds the loop again.
@@ -47,6 +48,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **Edit** a route to change its zone, nodes, name or pass distance; it finds the loop again when you save.
 - **Skip a node everywhere**: right-click it on the **New route** tab (Poor Copper Ore, Wilted Peacebloom...). It stays off, **Select all** leaves it out, new ones don't join your routes, and routes that had it drop it when you **Rebuild** them. Right-click it again (or click it) to stop skipping it. `/gpf skipped` lists them.
 - **Keep routes out of an area**: on the **Taboo areas** tab, pick the zone and click **Draw a taboo area**. The world map opens on that zone: left-click for each corner, right-click to take the last one back (scroll to zoom, drag to move the map), then click **Finish** at the top of the map. The routes in that zone are worked out again to go round it. Delete an area from the same tab.
+- **A shorter run**: set **Lap time** on the **New route** tab (or Edit a route) to how long you want one lap to take, like 10 minutes. The route goes round the busiest part of the zone and takes in as many nodes as fit. **Whole zone** (all the way left) uses every node. Lap times are riding time at your mount's speed, not counting stops to gather.
 - **Rebuild** a route after gathering more of a zone, so it takes in every node GatherMate2 knows now.
 - **Follow a route without watching the minimap**: switch on **Show the HUD** on the **HUD** tab (or type `/gpf hud`). Up on it is the way you face.
 - **Hide every line for a while**: right-click the minimap button, or type `/gpf hide` (and `/gpf show`).
@@ -56,7 +58,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 | Tab | What's there |
 |---|---|
 | **Routes** | The routes in a zone: color, name (click to rename), Edit, Rebuild, Delete, nodes, length in yards, time for a lap, show |
-| **New route** | Zone, the nodes GatherMate2 knows there (with Select all for each kind; right-click one to skip it), name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
+| **New route** | Zone, the nodes GatherMate2 knows there (with Select all for each kind; right-click one to skip it), name, route passes within, lap time, Make route. Starts blank each time; Edit fills it in from a route |
 | **Taboo areas** | Zone, Draw a taboo area, show them on the world map (red, hatched), and each area in the zone with its size, Show and Delete |
 | **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; direction arrows (on or off, reversed), line to the route, TomTom waypoint; the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button; Restore defaults puts them all back |
 | **HUD** | The HUD in the middle of the screen: on or off, turn with you or north up, show nodes, size, zoom, opacity, height |
