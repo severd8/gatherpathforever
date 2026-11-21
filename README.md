@@ -24,6 +24,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **Direction arrows** along the lines on both maps show which way round to ride each loop. Reverse them or turn them off on the Display tab.
 - **Line to the route** on the minimap: when you are off your route, a dashed line points from you to its nearest point, so you know where to join it.
 - **TomTom waypoint** (optional, needs **TomTom**): TomTom's arrow points to the nearest stop of your route, and when you get within 20 yards it moves on to the next stop round the loop, so you can follow the arrow instead of the line. Switch it on with **TomTom waypoint** on the Display tab, or `/gpf tomtom`.
+- **HUD in the middle of the screen** (off to start): a see-through round map round your character with your route, its arrows and your herb and ore nodes as dots. It turns with you, so the line ahead of you is the way to go, and you can keep your eyes on the game instead of the minimap. Set its size, zoom, opacity and height on the HUD tab, or type `/gpf hud`. It hides in combat and on flights.
 - **Time for a lap**: each route shows about how long one lap takes at your mount's speed (remembered from the last time you rode).
 - **Range circle** on the minimap (off to start): a ring round you, 100 yards to start, as far as Find Herbs and Find Minerals show nodes. Pick its color, opacity and size.
 - **Your look**: line width, opacity and color, set apart for the world map and the minimap. Lines use each route's own color, or one color you pick for every route.
@@ -47,6 +48,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **Skip a node everywhere**: right-click it on the **New route** tab (Poor Copper Ore, Wilted Peacebloom...). It stays off, **Select all** leaves it out, new ones don't join your routes, and routes that had it drop it when you **Rebuild** them. Right-click it again (or click it) to stop skipping it. `/gpf skipped` lists them.
 - **Keep routes out of an area**: on the **Taboo areas** tab, pick the zone and click **Draw a taboo area**. The world map opens on that zone: left-click for each corner, right-click to take the last one back (scroll to zoom, drag to move the map), then click **Finish** at the top of the map. The routes in that zone are worked out again to go round it. Delete an area from the same tab.
 - **Rebuild** a route after gathering more of a zone, so it takes in every node GatherMate2 knows now.
+- **Follow a route without watching the minimap**: switch on **Show the HUD** on the **HUD** tab (or type `/gpf hud`). Up on it is the way you face.
 - **Hide every line for a while**: right-click the minimap button, or type `/gpf hide` (and `/gpf show`).
 
 ### Window
@@ -57,6 +59,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 | **New route** | Zone, the nodes GatherMate2 knows there (with Select all for each kind; right-click one to skip it), name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
 | **Taboo areas** | Zone, Draw a taboo area, show them on the world map (red, hatched), and each area in the zone with its size, Show and Delete |
 | **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; direction arrows (on or off, reversed), line to the route, TomTom waypoint; the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button; Restore defaults puts them all back |
+| **HUD** | The HUD in the middle of the screen: on or off, turn with you or north up, show nodes, size, zoom, opacity, height |
 
 ### Commands
 
@@ -67,6 +70,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 | `/gpf hide`, `/gpf show` | Hide or show every line |
 | `/gpf skipped` | List the nodes on your skip list |
 | `/gpf tomtom` | Turn the TomTom waypoint on or off |
+| `/gpf hud` | Turn the HUD in the middle of the screen on or off |
 
 ## Good to know
 

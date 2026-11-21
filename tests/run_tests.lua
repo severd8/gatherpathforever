@@ -1145,6 +1145,145 @@ do
 end
 
 ---------------------------------------------------------------------------
+STEP("HUD in the middle of the screen")
+do
+    check(GP.db.hud == false and GP.db.hudRotate == true and GP.db.hudNodes == true, "off to start, turning, with nodes")
+    check(GP.db.hudSize == 320 and GP.db.hudYards == 150 and GP.db.hudAlpha == 60 and GP.db.hudY == 0)
+    GP:Changed()
+    check(not (GP.hud and GP.hud:IsShown()), "nothing on screen while it's off")
+    -- a route of its own, the others hidden
+    local wasShown = {}
+    for i, r in ipairs(GP.db.routes) do wasShown[i] = r.shown; r.shown = false end
+    local hr = { id = 999, mapID = E, name = "HUD test", shown = true, color = { 0.2, 0.4, 0.6 },
+        kinds = { Mining = { ["Copper Vein"] = true } },
+        points = { 0.4 + 100 / 1600, 0.4, 0.4 + 100 / 1600, 0.4 + 50 / 1066 } }
+    table.insert(GP.db.routes, hr)
+    PLAYER.x, PLAYER.y = 0.4, 0.4
+    SlashCmdList.GATHERPATHFOREVER("hud")
+    check(GP.db.hud == true and logHas("HUD on"), "/gpf hud turns it on")
+    local hud = GP.hud
+    check(hud and hud:IsShown(), "shown with a route in your zone")
+    check(hud.__parent == UIParent, "on UIParent, not a Blizzard frame")
+    local pt = hud.__points[#hud.__points]
+    check(pt[1] == "CENTER" and pt[2] == UIParent and pt[4] == 0 and pt[5] == 0, "in the middle of the screen")
+    check(hud.__w == 320 and near(hud:GetAlpha(), 0.6), "320 wide at 60%")
+    -- 100 yards east, 150 yards to the edge of a 160 radius
+    local k = 160 / 150
+    local lines = Shown(hud.pool)
+    check(#lines == 1, "two stops: one line")
+    check(near(lines[1].__from[1], 100 * k, 0.01) and near(lines[1].__from[2], 0, 0.01), "facing north: east is right")
+    check(lines[1].__color[1] == 0.2 and lines[1].__thickness == GP.db.minimapWidth, "the minimap's look")
+    check(#Shown(hud.ring) == 64, "a faint ring round the edge")
+    local me = Shown(hud.me)
+    check(#me == 2 and me[1].__to[2] > 0 and near(me[1].__to[1], 0, 0.01), "you: an arrow pointing up")
+    -- turns with you even when the minimap doesn't
+    CVARS.rotateMinimap = "0"
+    FACING = math.pi / 2
+    Tick(0.05)
+    lines = Shown(hud.pool)
+    check(near(lines[1].__from[1], 0, 0.01) and near(lines[1].__from[2], -100 * k, 0.01), "facing west: east is behind you")
+    me = Shown(hud.me)
+    check(me[1].__to[2] > 0 and near(me[1].__to[1], 0, 0.01), "your arrow still points up")
+    -- north up
+    Click((function() GP:OpenConfig("hud") return ui.hudRotate end)())
+    check(GP.config.currentTab == "hud" and GP.db.hudRotate == false, "the HUD tab's Turn with me switch")
+    lines = Shown(hud.pool)
+    check(near(lines[1].__from[1], 100 * k, 0.01) and near(lines[1].__from[2], 0, 0.01), "north up: east is right")
+    me = Shown(hud.me)
+    check(me[1].__to[1] < 0 and near(me[1].__to[2], 0, 0.01), "your arrow points west")
+    GP.db.hudRotate = true
+    FACING = 0
+    -- moving redraws it
+    PLAYER.x = 0.4 + 50 / 1600
+    Tick(0.05)
+    lines = Shown(hud.pool)
+    check(near(lines[1].__from[1], 50 * k, 0.01), "follows you as you move")
+    PLAYER.x = 0.4
+    -- nodes: Copper Vein at 0.3,0.3 and 0.3,0.7 are in reach at 400 yards, 0.7,0.7 isn't
+    GP.db.hudYards = 400
+    GP:Changed()
+    local dots = Shown(hud.dots)
+    check(#dots == 2, "the route's nodes in reach as dots")
+    local d1 = dots[1]
+    check(d1.__color[1] == GP.HUD_KIND_COLORS.Mining[1] and d1.__thickness == GP.HUD_DOT, "ore colored dots")
+    for _, d in ipairs(dots) do
+        local x, y = (d.__from[1] + d.__to[1]) / 2, d.__from[2]
+        check(math.sqrt(x * x + y * y) <= 160, "inside the HUD")
+    end
+    GP:SetSkipped("Copper Vein", true)
+    check(#Shown(hud.dots) == 0, "skipped nodes go")
+    GP:SetSkipped("Copper Vein", false)
+    check(#Shown(hud.dots) == 2, "and come back")
+    gm:Add(E, "Mining", 10, 0.35, 0.40)
+    check(#Shown(hud.dots) == 3, "a node GatherMate2 finds shows up")
+    gm:Delete(E, "Mining", 0.35, 0.40)
+    check(#Shown(hud.dots) == 2, "a deleted one goes")
+    for i = #hr.points, 5, -1 do hr.points[i] = nil end   -- the found node joined the route: back to two stops
+    Click(ui.hudNodes)
+    check(GP.db.hudNodes == false and #Shown(hud.dots) == 0, "Show nodes off")
+    Click(ui.hudNodes)
+    -- zoomed in, the line is cut at the edge
+    GP.db.hudYards = 50
+    GP:Changed()
+    lines = Shown(hud.pool)
+    check(#lines == 0 and #Shown(hud.dots) == 0, "100 yards away is off a 50 yard HUD")
+    GP.db.hudYards = 150
+    -- size, height and opacity
+    GP.db.hudSize, GP.db.hudY, GP.db.hudAlpha = 400, -120, 30
+    GP:Changed()
+    pt = hud.__points[#hud.__points]
+    check(hud.__w == 400 and pt[5] == -120 and near(hud:GetAlpha(), 0.3), "bigger, lower, fainter")
+    lines = Shown(hud.pool)
+    check(near(lines[1].__from[1], 100 * 200 / 150, 0.01), "same yards, more pixels")
+    GP.db.hudSize, GP.db.hudY, GP.db.hudAlpha = 320, 0, 60
+    -- arrows need 3 stops
+    hr.points = { 0.4 + 60 / 1600, 0.4, 0.4 + 60 / 1600, 0.4 + 60 / 1066, 0.4 - 60 / 1600, 0.4 + 60 / 1066 }
+    GP:Changed()
+    check(#Shown(hud.arrows) > 0, "direction arrows on the HUD")
+    GP.db.arrows = false
+    GP:Changed()
+    check(#Shown(hud.arrows) == 0, "not with arrows off")
+    GP.db.arrows = true
+    -- line to the route: far from it
+    hr.points = { 0.4 + 100 / 1600, 0.4, 0.4 + 100 / 1600, 0.4 + 50 / 1066 }
+    GP:Changed()
+    check(#Shown(hud.join) > 0, "dashes toward the route")
+    -- combat, flights, other zones
+    IN_COMBAT = true
+    FireEvent("PLAYER_REGEN_DISABLED")
+    check(not hud:IsShown(), "hidden in combat")
+    IN_COMBAT = false
+    FireEvent("PLAYER_REGEN_ENABLED")
+    check(hud:IsShown(), "back after")
+    UnitOnTaxi = function() return true end
+    GP:Changed()
+    check(not hud:IsShown(), "hidden on a flight")
+    UnitOnTaxi = nil
+    PLAYER.map = W
+    GP:Changed()
+    check(not hud:IsShown(), "hidden with no route in your zone")
+    PLAYER.map = E
+    hr.shown = false
+    GP:Changed()
+    check(not hud:IsShown(), "hidden with the route hidden")
+    hr.shown = true
+    GP:Changed()
+    check(hud:IsShown())
+    -- off from the tab, and /gpf hud
+    Click(ui.hudSwitch)
+    check(GP.db.hud == false and not hud:IsShown(), "Show the HUD off")
+    SlashCmdList.GATHERPATHFOREVER("hud")
+    check(GP.db.hud == true and hud:IsShown())
+    GP:RestoreDefaults()
+    check(GP.db.hud == false and not hud:IsShown(), "Restore defaults turns it off")
+    -- tidy up
+    table.remove(GP.db.routes)
+    for i, r in ipairs(GP.db.routes) do r.shown = wasShown[i] end
+    PLAYER.x, PLAYER.y = 0.5, 0.5
+    GP:Changed()
+end
+
+---------------------------------------------------------------------------
 STEP("taboo areas")
 do
     local r1 = GP.db.routes[1]

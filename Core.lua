@@ -40,6 +40,13 @@ GP.DEFAULTS = {
     arrowsReverse = false, -- and they point the other way
     joinLine = true,       -- a dashed line on the minimap from you to the nearest point of a route
     tomtom = false,        -- a TomTom waypoint on the next stop of the route you're on (needs TomTom)
+    hud = false,           -- the HUD: a see-through radar in the middle of the screen with nodes and route lines
+    hudRotate = true,      -- it turns with you (up = the way you face), else north is up
+    hudNodes = true,       -- GatherMate2's nodes of your routes as dots on it
+    hudSize = 320,         -- across, in pixels
+    hudYards = 150,        -- yards from its middle to its edge (the zoom)
+    hudAlpha = 60,         -- opacity (percent)
+    hudY = 0,              -- pixels up (or down) from the middle of the screen
     tabooShow = true,      -- taboo areas drawn (red, hatched) on the world map
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
@@ -53,6 +60,7 @@ GP.DISPLAY_KEYS = {
     "worldMap", "minimap", "worldWidth", "minimapWidth", "worldAlpha", "minimapAlpha",
     "worldRouteColor", "minimapRouteColor", "worldColor", "minimapColor",
     "arrows", "arrowsReverse", "joinLine", "tomtom",
+    "hud", "hudRotate", "hudNodes", "hudSize", "hudYards", "hudAlpha", "hudY",
     "range", "rangeYards", "rangeAlpha", "rangeColor",
     "autoAdd", "minimapButton",
 }
@@ -64,6 +72,10 @@ GP.RANGES = {
     rangeYards = { 20, 200 },
     rangeAlpha = { 10, 100 },
     sight = { 0, 200 },
+    hudSize = { 160, 600 },
+    hudYards = { 50, 400 },
+    hudAlpha = { 10, 100 },
+    hudY = { -300, 300 },
 }
 
 -- New routes take these in turn
@@ -265,6 +277,7 @@ function GP:IsSkipped(name) return self.db.skip[name] == true end
 function GP:SetSkipped(name, on)
     if type(name) ~= "string" then return end
     self.db.skip[name] = on and true or nil
+    self.nodeVersion = (self.nodeVersion or 0) + 1   -- the HUD's node dots
     self:Changed()
 end
 
@@ -904,10 +917,12 @@ function GP:ListenToGatherMate()
     local listener = {}
     pcall(gm.RegisterMessage, listener, "GatherMate2NodeAdded", function(_, zone, kind, coord, name)
         local x, y = decode(coord)
+        self.nodeVersion = self.nodeVersion + 1   -- the HUD's node dots
         if x and type(name) == "string" then self:AddNode(zone, kind, x, y, name) end
     end)
     pcall(gm.RegisterMessage, listener, "GatherMate2NodeDeleted", function(_, zone, kind, coord, name)
         local x, y = decode(coord)
+        self.nodeVersion = self.nodeVersion + 1
         if x and type(name) == "string" then self:RemoveNode(zone, kind, x, y, name) end
     end)
     self.listening = true
@@ -997,7 +1012,7 @@ local function DrawArrow(pool, rel, point, x, y, dx, dy, size, color, alpha, wid
         line:SetEndPoint(point, rel, tx, ty)
     end
 end
-GP.ARROW_GAP = { world = 80, minimap = 40 }   -- pixels on screen between arrows
+GP.ARROW_GAP = { world = 80, minimap = 40, hud = 60 }   -- pixels on screen between arrows
 
 -- The point of a loop (xs, ys, n stops; 2 stops: one leg) nearest to px, py:
 -- x, y and how far away it is
@@ -1474,6 +1489,7 @@ function GP:SetupMinimap()
         if frame.wait > 0 then return end
         frame.wait = 0.03
         self:DrawMinimap()
+        self:DrawHud()
         frame.tomWait = frame.tomWait - 1
         if frame.tomWait <= 0 then
             frame.tomWait = 8   -- about 4 times a second
@@ -1522,6 +1538,21 @@ function GP:DrawRange(force, radius, half)
     end
     pool:Done()
 end
+
+-- Map positions (flat x1, y1, x2, y2, ...; n of them) as pixels right and up
+-- from you at `at` ({ x, y }), on a map w x h yards; turned by the facing
+-- (cos c, sin s) when rotate. Used by the minimap and the HUD.
+local function Project(p, n, at, w, h, pxPerYard, rotate, c, s)
+    local sx, sy = {}, {}
+    for i = 1, n do
+        local dx = (p[2 * i - 1] - at[1]) * w * pxPerYard   -- east
+        local dy = (p[2 * i] - at[2]) * h * pxPerYard       -- south
+        if rotate then dx, dy = dx * c - dy * s, dx * s + dy * c end
+        sx[i], sy[i] = dx, -dy
+    end
+    return sx, sy
+end
+GP.Project = Project
 
 -- Redraws the minimap's lines if you've moved, turned or zoomed (or force)
 function GP:DrawMinimap(force)
@@ -1578,14 +1609,8 @@ function GP:DrawMinimap(force)
             local w, h = Yards(route.mapID)
             local p = route.points
             local color = self:LineColor(route, "minimap")
-            -- every node, in pixels from the minimap's middle (right and up)
-            local sx, sy = {}, {}
-            for i = 1, n do
-                local dx = (p[2 * i - 1] - at[1]) * w * pxPerYard   -- east
-                local dy = (p[2 * i] - at[2]) * h * pxPerYard       -- south
-                if rotate then dx, dy = dx * c - dy * s, dx * s + dy * c end
-                sx[i], sy[i] = dx, -dy
-            end
+            -- every stop, in pixels from the minimap's middle (right and up)
+            local sx, sy = Project(p, n, at, w, h, pxPerYard, rotate, c, s)
             for i = 1, n do
                 local j = i % n + 1
                 if not (n == 2 and i == 2) then
@@ -1629,6 +1654,203 @@ function GP:DrawMinimap(force)
     end
     f.join:Done()
     f.drew = true
+end
+
+---------------------------------------------------------------------------
+-- HUD (since 1.14.0): a see-through round radar in the middle of the screen
+-- with the routes round you, their arrows, the line to the route and
+-- GatherMate2's nodes, so you can follow a route without watching the
+-- minimap. Our own frame on UIParent, never takes the mouse. Up is the way
+-- you face (db.hudRotate), else north. Hidden in combat and on a flight.
+---------------------------------------------------------------------------
+GP.HUD_KIND_COLORS = {
+    ["Herb Gathering"] = { 0.35, 0.95, 0.35 },
+    ["Mining"] = { 1.00, 0.62, 0.25 },
+    ["Fishing"] = { 0.35, 0.70, 1.00 },
+    ["Treasure"] = { 1.00, 0.85, 0.20 },
+}
+GP.HUD_DOT = 6           -- node dot size (pixels)
+GP.HUD_RING = 0.25       -- the edge ring's opacity (times the HUD's)
+GP.nodeVersion = 0       -- bumped when GatherMate2 adds or deletes a node, or the skip list changes
+
+-- The nodes a route is made from, by kind: { x, y, kind } map positions.
+-- Cached on the route until its points, GatherMate2's nodes or the skip list change.
+function GP:HudNodes(route)
+    local key = tostring(route.points) .. ":" .. #route.points .. ":" .. tostring(route.kinds) .. ":" .. self.nodeVersion
+    local cache = self.hudCache or setmetatable({}, { __mode = "k" })
+    self.hudCache = cache
+    local c = cache[route]
+    if c and c.key == key then return c.list end
+    local list, skip = {}, self.db.skip
+    for kind, names in pairs(route.kinds) do
+        self:EachNode(route.mapID, kind, function(x, y, name)
+            if names[name] and not skip[name] then list[#list + 1] = { x, y, kind } end
+        end)
+    end
+    cache[route] = { key = key, list = list }
+    return list
+end
+
+function GP:SetupHud()
+    if self.hud then return self.hud end
+    local f = CreateFrame("Frame", nil, UIParent)
+    f:SetFrameStrata("BACKGROUND")
+    if f.EnableMouse then f:EnableMouse(false) end
+    f.ring = LinePool(f, "BACKGROUND")
+    f.dots = LinePool(f, "BORDER")
+    f.pool = LinePool(f, "ARTWORK")
+    f.arrows = LinePool(f, "ARTWORK")
+    f.join = LinePool(f, "ARTWORK")
+    f.me = LinePool(f, "OVERLAY")
+    f:Hide()
+    self.hud = f
+    return f
+end
+
+local function HudClear(f)
+    for _, k in ipairs({ "ring", "dots", "pool", "arrows", "join", "me" }) do f[k]:Begin(); f[k]:Done() end
+    f.last = nil
+    f:Hide()
+end
+
+-- Why the HUD isn't showing now (nil = it can show)
+function GP:HudHidden()
+    if not self.db.hud then return "off" end
+    if InCombatLockdown and InCombatLockdown() then return "combat" end
+    if UnitOnTaxi and UnitOnTaxi("player") then return "taxi" end
+end
+
+-- Redraws the HUD if you've moved or turned (or force). Called from the
+-- minimap frame's OnUpdate (about 30 times a second) and from Changed.
+function GP:DrawHud(force)
+    local db = self.db
+    if not db then return end
+    if not db.hud and not self.hud then return end
+    local f = self:SetupHud()
+    if self:HudHidden() then
+        if f.last or f:IsShown() then HudClear(f) end
+        return
+    end
+    local size, half = db.hudSize, db.hudSize / 2
+    -- the way you face (nil indoors in some places: north); north up still turns your arrow
+    local facing = GetPlayerFacing and GetPlayerFacing() or 0
+
+    local mc = db.minimapColor
+    local maps, any = {}, false
+    local key = ("%d:%d:%d:%d:%s:%s:%.3f:%d:%d:%s:%.3f:%.3f:%.3f:%s:%s:%s:%d"):format(size, db.hudYards, db.hudAlpha,
+        db.hudY, tostring(db.hudRotate), tostring(db.hudNodes), facing, db.minimapWidth, db.minimapAlpha,
+        tostring(db.minimapRouteColor), mc[1], mc[2], mc[3], tostring(db.arrows), tostring(db.arrowsReverse),
+        tostring(db.joinLine), self.nodeVersion)
+    for _, route in ipairs(db.routes) do
+        if route.shown and not route.working and maps[route.mapID] == nil then
+            local x, y = PlayerPos(route.mapID)
+            maps[route.mapID] = x and { x, y } or false
+            if x then key = key .. (":%d:%.5f:%.5f"):format(route.mapID, x, y); any = true end
+        end
+    end
+    if not any then
+        if f.last or f:IsShown() then HudClear(f) end
+        return
+    end
+    if not force and key == f.last and f:IsShown() then return end
+    f.last = key
+
+    f:ClearAllPoints()
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, db.hudY)
+    f:SetSize(size, size)
+    f:SetAlpha(db.hudAlpha / 100)
+    f:Show()
+
+    local pxPerYard = half / db.hudYards
+    local inside = half - 1
+    local rotate = db.hudRotate
+    local c, s = cos(facing), sin(facing)
+    local width = db.minimapWidth
+    local alpha = db.minimapAlpha / 100
+    local asize = max(8, width * 3)
+
+    -- the edge, faint
+    f.ring:Begin()
+    for i = 1, RING_SIDES do
+        local a1, a2 = (i - 1) / RING_SIDES * 2 * math.pi, i / RING_SIDES * 2 * math.pi
+        local line = f.ring:Get()
+        Paint(line, { 1, 1, 1 }, self.HUD_RING, 1)
+        line:SetStartPoint("CENTER", f, inside * cos(a1), inside * sin(a1))
+        line:SetEndPoint("CENTER", f, inside * cos(a2), inside * sin(a2))
+    end
+    f.ring:Done()
+
+    local join
+    f.dots:Begin(); f.pool:Begin(); f.arrows:Begin()
+    local dot = self.HUD_DOT
+    for _, route in ipairs(db.routes) do
+        local at = maps[route.mapID]
+        local n = self:NodeCount(route)
+        if at and route.shown and not route.working and n >= 2 then
+            local w, h = Yards(route.mapID)
+            local color = self:LineColor(route, "minimap")
+            if db.hudNodes then
+                local r2 = (inside - dot) ^ 2
+                for _, node in ipairs(self:HudNodes(route)) do
+                    local dx = (node[1] - at[1]) * w * pxPerYard
+                    local dy = (node[2] - at[2]) * h * pxPerYard
+                    if dx * dx + dy * dy <= r2 then
+                        if rotate then dx, dy = dx * c - dy * s, dx * s + dy * c end
+                        local line = f.dots:Get()
+                        Paint(line, self.HUD_KIND_COLORS[node[3]] or { 1, 1, 1 }, 1, dot)
+                        line:SetStartPoint("CENTER", f, dx - dot / 2, -dy)
+                        line:SetEndPoint("CENTER", f, dx + dot / 2, -dy)
+                    end
+                end
+            end
+            local sx, sy = Project(route.points, n, at, w, h, pxPerYard, rotate, c, s)
+            for i = 1, n do
+                local j = i % n + 1
+                if not (n == 2 and i == 2) then
+                    local ax, ay, bx, by = ClipCircle(sx[i], sy[i], sx[j], sy[j], inside)
+                    if ax then
+                        local line = f.pool:Get()
+                        Paint(line, color, alpha, width)
+                        line:SetStartPoint("CENTER", f, ax, ay)
+                        line:SetEndPoint("CENTER", f, bx, by)
+                    end
+                end
+            end
+            if db.joinLine then
+                local x, y, d = NearestOnLoop(sx, sy, n, 0, 0)
+                if x and (not join or d < join[3]) then join = { x, y, d, color } end
+            end
+            if db.arrows then
+                local room = inside - asize
+                for _, a in ipairs(ArrowMarks(sx, sy, n, self.ARROW_GAP.hud, db.arrowsReverse)) do
+                    if a[1] * a[1] + a[2] * a[2] <= room * room then
+                        DrawArrow(f.arrows, f, "CENTER", a[1], a[2], a[3], a[4], asize, color, alpha, width)
+                    end
+                end
+            end
+        end
+    end
+    f.dots:Done(); f.pool:Done(); f.arrows:Done()
+
+    f.join:Begin()
+    if join and join[3] > self.JOIN_MIN * pxPerYard then
+        DrawJoin(f.join, f, join[1], join[2], inside, join[4], alpha, max(1, width - 1))
+    end
+    f.join:Done()
+
+    -- you: an arrow in the middle, the way you face (straight up when it turns with you)
+    f.me:Begin()
+    local fx, fy = 0, 1
+    if not rotate then fx, fy = -sin(facing), cos(facing) end
+    DrawArrow(f.me, f, "CENTER", 0, 0, fx, fy, 12, { 1, 1, 1 }, 1, 2)
+    f.me:Done()
+end
+
+function GP:ToggleHud()
+    self.db.hud = not self.db.hud
+    Print(self.db.hud and "HUD on. Set its size, zoom and opacity on the HUD tab (/gpf)."
+        or "HUD off.")
+    self:Changed()
 end
 
 ---------------------------------------------------------------------------
@@ -1760,6 +1982,7 @@ end
 function GP:Changed()
     self:DrawWorldMap()
     self:DrawMinimap(true)
+    self:DrawHud(true)
     self:UpdateWaypoint()
     if self.RefreshConfig then self:RefreshConfig() end
 end
@@ -1851,6 +2074,7 @@ local function Help()
     print("  |cffffd100/gpf show|r, |cffffd100/gpf hide|r  show or hide all the lines")
     print("  |cffffd100/gpf skipped|r  the nodes on your skip list")
     print("  |cffffd100/gpf tomtom|r  turn the TomTom waypoint on or off")
+    print("  |cffffd100/gpf hud|r  turn the HUD in the middle of the screen on or off")
 end
 
 SLASH_GATHERPATHFOREVER1 = "/gpf"
@@ -1870,6 +2094,8 @@ SlashCmdList.GATHERPATHFOREVER = function(msg)
         end
     elseif cmd == "tomtom" or cmd == "waypoint" then
         GP:ToggleTomTom()
+    elseif cmd == "hud" then
+        GP:ToggleHud()
     elseif cmd == "show" or cmd == "hide" then
         local on = cmd == "show"
         if (GP.db.worldMap or GP.db.minimap) ~= on then GP:ToggleLines() end
@@ -1886,6 +2112,8 @@ events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 pcall(events.RegisterEvent, events, "ZONE_CHANGED_NEW_AREA")
+pcall(events.RegisterEvent, events, "PLAYER_REGEN_DISABLED")   -- the HUD hides in combat
+pcall(events.RegisterEvent, events, "PLAYER_REGEN_ENABLED")
 events:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON then
@@ -1904,8 +2132,11 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if not GP:HasGatherMate() then
             Print("needs |cffffd100GatherMate2|r for its herb and ore nodes. Install it from CurseForge, then /reload.")
         end
+    elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+        GP:DrawHud(true)
     else
         GP:DrawMinimap(true)
+        GP:DrawHud(true)
         if GP.RefreshConfig then GP:RefreshConfig() end
     end
 end)

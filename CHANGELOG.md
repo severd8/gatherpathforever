@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.14.0
+
+- New **HUD** in the middle of the screen: a see-through round map round your character with your route's line, its direction arrows, the line to the route and your herb and ore nodes as colored dots (green herbs, orange ore). It turns with you, so straight up on the HUD is straight ahead, and you can follow a route without looking down at the minimap. Thanks to RawG for the idea.
+- It's off to start. Switch it on with **Show the HUD** on the new **HUD** tab, or type **/gpf hud**. On the same tab: **Turn with me** (off keeps north up), **Show nodes**, and its **size**, **zoom**, **opacity** and **height** on the screen.
+- It takes the minimap's line width, colors and opacity, hides in combat and on flights, and only shows when a route is showing in your zone.
+- **Restore defaults** on the Display tab puts the HUD settings back too.
+
 ## 1.13.0
 
 - New **TomTom waypoint**, if you have the **TomTom** addon: TomTom's arrow points to the nearest stop of the route showing in your zone. When you get within 20 yards of it, the waypoint moves on to the next stop round the loop, the same way the direction arrows go (the other way if you've turned them round). Thanks to cidolfus27 for the idea.

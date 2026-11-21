@@ -1,5 +1,5 @@
 -- GatherPath Forever: the window (/gpf), in the shared look (Theme.lua).
--- Tabs down the left: Routes (the ones you have), New route, Display.
+-- Tabs down the left: Routes (the ones you have), New route, Taboo areas, Display, HUD.
 --
 -- Layout rules: rows 26 apart; a dropdown after a row label starts at DROP_X;
 -- lists that can grow (routes, kinds of node) scroll.
@@ -796,13 +796,56 @@ local function BuildDisplay(p)
 
     local restore = FlatButton(p, "Restore defaults", 150, 22)
     restore:SetPoint("TOPLEFT", 0, -506)
-    T.Tooltip(restore, "Restore defaults", "Put every setting on this tab back as it was to start. "
+    T.Tooltip(restore, "Restore defaults", "Put every setting on this tab and the HUD tab back as it was to start. "
         .. "Your routes are kept.")
     restore:SetScript("OnClick", function()
-        GP:Confirm("Put every setting on the Display tab back as it was to start? Your routes are kept.",
+        GP:Confirm("Put every setting on the Display and HUD tabs back as it was to start? Your routes are kept.",
             "Restore", function() GP:RestoreDefaults() end)
     end)
     refs.restoreDefaults = restore
+end
+
+---------------------------------------------------------------------------
+-- HUD tab (since 1.14.0)
+---------------------------------------------------------------------------
+local function StepSlider(parent, text, x, y, key, suffix, step, tip)
+    local r = GP.RANGES[key]
+    local s = T.Slider(parent, text, x, y, 244,
+        function() return GP.db[key] end,
+        function(v) GP.db[key] = v; GP:Changed() end,
+        r[1], r[2], suffix, step)
+    if tip then T.Tooltip(s, text, tip) end
+    AddRefresher(s.Refresh)
+    return s
+end
+
+local function BuildHud(p)
+    local card = Card(p, "HUD in the middle of the screen", 0, 0, PAGE_W, 190)
+    refs.hudSwitch = Setting(card, "Show the HUD", 12, -30, "hud",
+        "A see-through round map in the middle of the screen with your routes, their arrows and nodes round you, "
+        .. "so you can keep your eyes on the game instead of the minimap. Also /gpf hud.")
+    refs.hudRotate = Setting(card, "Turn with me", COL2, -30, "hudRotate",
+        "Up on the HUD is the way you face, so the line ahead of you is the way to go. "
+        .. "Turn this off to keep north up.")
+    refs.hudNodes = Setting(card, "Show nodes", 12, -60, "hudNodes",
+        "GatherMate2's nodes of your routes as dots: green herbs, orange ore, blue fishing, yellow treasure.")
+    refs.hudSize = StepSlider(card, "Size", 12, -94, "hudSize", " px", 10,
+        "How wide the HUD is on the screen.")
+    refs.hudYards = StepSlider(card, "Zoom", COL2, -94, "hudYards", " yards", 10,
+        "How far round you the HUD reaches, from its middle to its edge.")
+    refs.hudAlpha = StepSlider(card, "Opacity", 12, -138, "hudAlpha", "%", 5,
+        "How see-through the whole HUD is.")
+    refs.hudY = StepSlider(card, "Height", COL2, -138, "hudY", " px", 10,
+        "Move the HUD up or down from the middle of the screen.")
+    AddRefresher(function()
+        local on = GP.db.hud
+        for _, w in ipairs({ refs.hudRotate, refs.hudNodes, refs.hudSize, refs.hudYards, refs.hudAlpha, refs.hudY }) do
+            w:SetAlpha(on and 1 or 0.4)
+        end
+    end)
+    T.Note(p, "The HUD uses the minimap's line width, colors and opacity, and the arrows and line to the route "
+        .. "from the Display tab. It hides in combat and on flights, and when no route is showing in your zone. "
+        .. "Restore defaults on the Display tab puts these settings back too.", 0, -200, PAGE_W)
 end
 
 ---------------------------------------------------------------------------
@@ -813,6 +856,7 @@ local TABS = {
     { key = "new",     label = "New route", icon = "Interface\\Icons\\INV_Misc_Flower_02", build = BuildNew },
     { key = "taboo",   label = "Taboo areas", icon = "Interface\\Icons\\INV_Misc_Bone_Skull_01", build = BuildTaboo },
     { key = "display", label = "Display",   icon = "Interface\\Icons\\INV_Misc_Spyglass_03", build = BuildDisplay },
+    { key = "hud",     label = "HUD",       icon = "Interface\\Icons\\INV_Misc_Eye_01", build = BuildHud },
 }
 GP.CONFIG_TABS = TABS
 
