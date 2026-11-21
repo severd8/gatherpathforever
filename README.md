@@ -6,7 +6,7 @@
 
 GatherPath Forever takes the herb and ore nodes GatherMate2 has recorded, works out the shortest loop through them, and draws it on your world map and minimap. Pick Peacebloom and Silverleaf in Elwynn Forest, or every vein in a zone, and follow the line.
 
-Needs **GatherMate2** (on CurseForge), which records where you find nodes.
+Needs **GatherMate2** (on CurseForge), which records where you find nodes. **TomTom** is optional: install it to have its arrow lead you from stop to stop.
 
 Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/wow/addons/gathermate2-data-wowhead-classic)**. It lets you import Wowhead's herb and ore nodes into GatherMate2, so you can make a full route through a zone before you've gathered it yourself. After installing it, open GatherMate2's options, go to **Import Data** and import the nodes you want.
 
@@ -23,6 +23,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 - **Route passes within** a distance of each node instead of right up to it (185 yards to start, up to 200): with Find Herbs or Find Minerals on you see nodes on the minimap from there, so the route cuts corners and is shorter, and nodes close together become one stop.
 - **Direction arrows** along the lines on both maps show which way round to ride each loop. Reverse them or turn them off on the Display tab.
 - **Line to the route** on the minimap: when you are off your route, a dashed line points from you to its nearest point, so you know where to join it.
+- **TomTom waypoint** (optional, needs **TomTom**): TomTom's arrow points to the nearest stop of your route, and when you get within 20 yards it moves on to the next stop round the loop, so you can follow the arrow instead of the line. Switch it on with **TomTom waypoint** on the Display tab, or `/gpf tomtom`.
 - **Time for a lap**: each route shows about how long one lap takes at your mount's speed (remembered from the last time you rode).
 - **Range circle** on the minimap (off to start): a ring round you, 100 yards to start, as far as Find Herbs and Find Minerals show nodes. Pick its color, opacity and size.
 - **Your look**: line width, opacity and color, set apart for the world map and the minimap. Lines use each route's own color, or one color you pick for every route.
@@ -55,7 +56,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 | **Routes** | The routes in a zone: color, name (click to rename), Edit, Rebuild, Delete, nodes, length in yards, time for a lap, show |
 | **New route** | Zone, the nodes GatherMate2 knows there (with Select all for each kind; right-click one to skip it), name, route passes within, Make route. Starts blank each time; Edit fills it in from a route |
 | **Taboo areas** | Zone, Draw a taboo area, show them on the world map (red, hatched), and each area in the zone with its size, Show and Delete |
-| **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; direction arrows (on or off, reversed), line to the route; the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button; Restore defaults puts them all back |
+| **Display** | Lines on the world map and the minimap: width, opacity, and each route's own color or one you pick, for each map; direction arrows (on or off, reversed), line to the route, TomTom waypoint; the range circle (on or off, color, radius, opacity); add new nodes to routes, minimap button; Restore defaults puts them all back |
 
 ### Commands
 
@@ -65,6 +66,7 @@ Recommended: **[GatherMate2 Data (Wowhead Classic)](https://www.curseforge.com/w
 | `/gpf new` | Open the New route tab |
 | `/gpf hide`, `/gpf show` | Hide or show every line |
 | `/gpf skipped` | List the nodes on your skip list |
+| `/gpf tomtom` | Turn the TomTom waypoint on or off |
 
 ## Good to know
 

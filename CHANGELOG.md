@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.13.0
+
+- New **TomTom waypoint**, if you have the **TomTom** addon: TomTom's arrow points to the nearest stop of the route showing in your zone. When you get within 20 yards of it, the waypoint moves on to the next stop round the loop, the same way the direction arrows go (the other way if you've turned them round). Thanks to cidolfus27 for the idea.
+- If you ride off somewhere else on the route, the waypoint starts again from the stop nearest you. It goes away when you leave the zone or hide the route.
+- It's off to start. Switch it on with **TomTom waypoint** in the **Following a route** card on the **Display** tab, or type **/gpf tomtom**. Without TomTom the switch is greyed out and GatherPath works as before.
+
 ## 1.12.1
 
 - **Route passes within** now goes up to **200 yards** (it stopped at 150), and moves in steps of 5.

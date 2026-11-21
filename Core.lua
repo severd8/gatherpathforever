@@ -39,6 +39,7 @@ GP.DEFAULTS = {
     arrows = true,         -- arrows along the lines show which way round to ride
     arrowsReverse = false, -- and they point the other way
     joinLine = true,       -- a dashed line on the minimap from you to the nearest point of a route
+    tomtom = false,        -- a TomTom waypoint on the next stop of the route you're on (needs TomTom)
     tabooShow = true,      -- taboo areas drawn (red, hatched) on the world map
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
@@ -51,7 +52,7 @@ GP.DEFAULTS = {
 GP.DISPLAY_KEYS = {
     "worldMap", "minimap", "worldWidth", "minimapWidth", "worldAlpha", "minimapAlpha",
     "worldRouteColor", "minimapRouteColor", "worldColor", "minimapColor",
-    "arrows", "arrowsReverse", "joinLine",
+    "arrows", "arrowsReverse", "joinLine", "tomtom",
     "range", "rangeYards", "rangeAlpha", "rangeColor",
     "autoAdd", "minimapButton",
 }
@@ -1466,12 +1467,18 @@ function GP:SetupMinimap()
     f.arrows = LinePool(f, "ARTWORK")
     f.join = LinePool(f, "ARTWORK")
     f.speedWait = 0
+    f.tomWait = 0
     f.wait = 0
     f:SetScript("OnUpdate", function(frame, elapsed)
         frame.wait = frame.wait - elapsed
         if frame.wait > 0 then return end
         frame.wait = 0.03
         self:DrawMinimap()
+        frame.tomWait = frame.tomWait - 1
+        if frame.tomWait <= 0 then
+            frame.tomWait = 8   -- about 4 times a second
+            self:UpdateWaypoint()
+        end
         frame.speedWait = frame.speedWait - 1
         if frame.speedWait <= 0 then
             frame.speedWait = 60   -- about every 2 seconds
@@ -1625,11 +1632,135 @@ function GP:DrawMinimap(force)
 end
 
 ---------------------------------------------------------------------------
+-- TomTom waypoint (optional): TomTom's arrow points at the nearest stop of
+-- the nearest route showing in your zone, then at each next stop the way the
+-- arrows go, moving on once you're within TOMTOM_ARRIVE yards.
+-- Only TomTom's public AddWaypoint / RemoveWaypoint are used, in pcall.
+---------------------------------------------------------------------------
+GP.TOMTOM_ARRIVE = 20    -- yards: this close to the stop and the waypoint moves on
+GP.TOMTOM_LOST = 250     -- yards: further than this from it, and a stop half as far away, starts again there
+
+function GP:HasTomTom()
+    return type(TomTom) == "table" and type(TomTom.AddWaypoint) == "function"
+        and type(TomTom.RemoveWaypoint) == "function"
+end
+
+-- The stop after stop i on a loop of n stops (the other way round if reverse)
+local function NextStop(n, i, reverse)
+    if reverse then return i == 1 and n or i - 1 end
+    return i % n + 1
+end
+GP.NextStop = NextStop
+
+-- The stop of a loop (xs, ys in yards, n stops) nearest to px, py: index, yards
+local function NearestStop(xs, ys, n, px, py)
+    local best, bd
+    for i = 1, n do
+        local d = (xs[i] - px) ^ 2 + (ys[i] - py) ^ 2
+        if not bd or d < bd then best, bd = i, d end
+    end
+    if best then return best, sqrt(bd) end
+end
+GP.NearestStop = NearestStop
+
+-- A route's stops in yards, and you in yards on its map (nil if you're not on it)
+local function StopsInYards(route)
+    local px, py = PlayerPos(route.mapID)
+    if not px then return nil end
+    local w, h = Yards(route.mapID)
+    local p, xs, ys = route.points, {}, {}
+    local n = GP:NodeCount(route)
+    for i = 1, n do xs[i], ys[i] = p[2 * i - 1] * w, p[2 * i] * h end
+    return xs, ys, n, px * w, py * h
+end
+
+function GP:ClearWaypoint()
+    local wp = self.wp
+    self.wp = nil
+    if wp and wp.uid and self:HasTomTom() then pcall(TomTom.RemoveWaypoint, TomTom, wp.uid) end
+end
+
+-- Puts the waypoint on stop i of route (if it isn't there already)
+local function SetWaypoint(self, route, i, n)
+    local wp = self.wp
+    local x, y = route.points[2 * i - 1], route.points[2 * i]
+    if wp and wp.route == route and wp.i == i and wp.x == x and wp.y == y then return end
+    self:ClearWaypoint()
+    local title = ("%s - stop %d of %d"):format(route.name, i, n)
+    local ok, uid = pcall(TomTom.AddWaypoint, TomTom, route.mapID, x, y, {
+        title = title, from = "GatherPath Forever", persistent = false, silent = true,
+        crazy = true, minimap = true, world = true,
+        cleardistance = 0,   -- we move it on ourselves
+        arrivaldistance = self.TOMTOM_ARRIVE,
+    })
+    self.wp = { route = route, i = i, x = x, y = y, uid = ok and uid or nil }
+end
+
+-- Run every few frames: moves the waypoint on, or sets or clears it
+function GP:UpdateWaypoint()
+    local db = self.db
+    if not (db and db.tomtom and self:HasTomTom()) then
+        if self.wp then self:ClearWaypoint() end
+        return
+    end
+    local mapID = self:PlayerMap()
+    local wp = self.wp
+    local route, i
+    -- still following a route here whose stop hasn't moved?
+    if wp then
+        local r, kept = wp.route, false
+        for _, other in ipairs(db.routes) do if other == r then kept = true break end end
+        if kept and r.shown and not r.working and r.mapID == mapID and self:NodeCount(r) >= 2
+            and r.points[2 * wp.i - 1] == wp.x and r.points[2 * wp.i] == wp.y then
+            local xs, ys, n, px, py = StopsInYards(r)
+            if xs then
+                i = wp.i
+                local d = sqrt((xs[i] - px) ^ 2 + (ys[i] - py) ^ 2)
+                local near, nd = NearestStop(xs, ys, n, px, py)
+                if d > self.TOMTOM_LOST and nd < d / 2 then i, d = near, nd end   -- gone off to another part of it
+                if d <= self.TOMTOM_ARRIVE then i = NextStop(n, i, db.arrowsReverse) end
+                SetWaypoint(self, r, i, n)
+                return
+            end
+        end
+    end
+    -- start: the nearest stop of any route showing in your zone
+    local bestD, bestN
+    for _, r in ipairs(db.routes) do
+        if r.shown and not r.working and r.mapID == mapID and self:NodeCount(r) >= 2 then
+            local xs, ys, n, px, py = StopsInYards(r)
+            if xs then
+                local k, d = NearestStop(xs, ys, n, px, py)
+                if not bestD or d < bestD then route, i, bestD, bestN = r, k, d, n end
+            end
+        end
+    end
+    if not route then
+        if self.wp then self:ClearWaypoint() end
+        return
+    end
+    if bestD <= self.TOMTOM_ARRIVE then i = NextStop(bestN, i, db.arrowsReverse) end
+    SetWaypoint(self, route, i, bestN)
+end
+
+function GP:ToggleTomTom()
+    if not self:HasTomTom() then
+        Print("the waypoint needs the |cffffd100TomTom|r addon. Install it from CurseForge, then /reload.")
+        return
+    end
+    self.db.tomtom = not self.db.tomtom
+    Print(self.db.tomtom and "TomTom waypoint on: it points to the next stop of the route you're on."
+        or "TomTom waypoint off.")
+    self:Changed()
+end
+
+---------------------------------------------------------------------------
 -- Redraw everything after a change
 ---------------------------------------------------------------------------
 function GP:Changed()
     self:DrawWorldMap()
     self:DrawMinimap(true)
+    self:UpdateWaypoint()
     if self.RefreshConfig then self:RefreshConfig() end
 end
 
@@ -1719,6 +1850,7 @@ local function Help()
     print("  |cffffd100/gpf new|r  make a new route")
     print("  |cffffd100/gpf show|r, |cffffd100/gpf hide|r  show or hide all the lines")
     print("  |cffffd100/gpf skipped|r  the nodes on your skip list")
+    print("  |cffffd100/gpf tomtom|r  turn the TomTom waypoint on or off")
 end
 
 SLASH_GATHERPATHFOREVER1 = "/gpf"
@@ -1736,6 +1868,8 @@ SlashCmdList.GATHERPATHFOREVER = function(msg)
         else
             Print("skipped (right-click one on the New route tab to stop skipping it): " .. table.concat(list, ", "))
         end
+    elseif cmd == "tomtom" or cmd == "waypoint" then
+        GP:ToggleTomTom()
     elseif cmd == "show" or cmd == "hide" then
         local on = cmd == "show"
         if (GP.db.worldMap or GP.db.minimap) ~= on then GP:ToggleLines() end

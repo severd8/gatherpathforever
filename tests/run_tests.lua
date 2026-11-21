@@ -1024,6 +1024,127 @@ for i, r in ipairs(GP.db.routes) do r.shown = wasShown2[i] end
 GP:Changed()
 
 ---------------------------------------------------------------------------
+STEP("TomTom waypoint")
+do
+    check(GP.NextStop(4, 4) == 1 and GP.NextStop(4, 2) == 3, "next stop goes round the loop")
+    check(GP.NextStop(4, 1, true) == 4 and GP.NextStop(4, 3, true) == 2, "and the other way reversed")
+    local k, d = GP.NearestStop({ 0, 100, 100 }, { 0, 0, 50 }, 3, 90, 40)
+    check(k == 3 and near(d, math.sqrt(200)), "the nearest stop")
+
+    check(GP.db.tomtom == false and ui.tomtomSwitch, "off to start, with a switch")
+    check(not GP:HasTomTom(), "no TomTom here yet")
+    GP:ToggleTomTom()
+    check(GP.db.tomtom == false and logHas("needs the |cffffd100TomTom|r addon"), "/gpf tomtom without TomTom says so")
+    GP:OpenConfig("display")
+    check(ui.tomtomSwitch:GetAlpha() < 1, "greyed out without TomTom")
+
+    -- a fake TomTom that remembers its waypoints
+    local points, nextUid, removed = {}, 0, 0
+    TomTom = {
+        AddWaypoint = function(self, m, x, y, opts)
+            nextUid = nextUid + 1
+            points[nextUid] = { m = m, x = x, y = y, opts = opts }
+            return nextUid
+        end,
+        RemoveWaypoint = function(self, uid) if points[uid] then points[uid] = nil; removed = removed + 1 end end,
+    }
+    local function current()
+        local uid, n = nil, 0
+        for u in pairs(points) do uid = u; n = n + 1 end
+        check(n <= 1, "never more than one waypoint")
+        return uid and points[uid]
+    end
+    GP:RefreshConfig()
+    check(ui.tomtomSwitch:GetAlpha() == 1, "not greyed out with TomTom")
+
+    local wasShown3 = {}
+    for i, r in ipairs(GP.db.routes) do wasShown3[i] = r.shown; r.shown = (r == herbs) end
+    local kept = herbs.points
+    -- a square 200 x 200 yards: stops at (400, 400), (600, 400), (600, 600), (400, 600) yards
+    local function P(xy, yy) return xy / 1600, yy / 1066 end
+    local x1, y1 = P(400, 400); local x2, y2 = P(600, 400); local x3, y3 = P(600, 600); local x4, y4 = P(400, 600)
+    herbs.points = { x1, y1, x2, y2, x3, y3, x4, y4 }
+    PLAYER.x, PLAYER.y = P(380, 610)   -- by stop 4
+    GP:UpdateWaypoint()
+    check(current() == nil, "nothing while it's off")
+    Click(ui.tomtomSwitch)
+    check(GP.db.tomtom == true, "switched on")
+    local wp = current()
+    check(wp and wp.m == E and wp.x == x4 and wp.y == y4, "points to the nearest stop")
+    check(wp.opts.title == herbs.name .. " - stop 4 of 4" and wp.opts.crazy and wp.opts.persistent == false
+        and wp.opts.cleardistance == 0, "titled, with the arrow, not saved, not cleared by TomTom")
+    GP:UpdateWaypoint()
+    check(current() == wp and removed == 0, "left alone while you ride to it")
+    PLAYER.x, PLAYER.y = P(405, 590)   -- within 20 yards of stop 4
+    GP:UpdateWaypoint()
+    wp = current()
+    check(wp.x == x1 and wp.y == y1 and removed == 1, "arrived: moves on to the next stop round the loop")
+    PLAYER.x, PLAYER.y = P(500, 400)   -- half way along
+    GP:UpdateWaypoint()
+    check(current() == wp, "not moved on half way there, though stop 2 is as near")
+    PLAYER.x, PLAYER.y = P(410, 405)
+    GP:UpdateWaypoint()
+    check(current().x == x2 and current().y == y2, "then stop 2")
+
+    GP.db.arrowsReverse = true
+    PLAYER.x, PLAYER.y = P(598, 402)
+    GP:UpdateWaypoint()
+    check(current().x == x1 and current().y == y1, "reversed arrows: back the other way")
+    GP.db.arrowsReverse = false
+
+    -- went far off: starts again at the nearest stop
+    PLAYER.x, PLAYER.y = P(400, 400)
+    GP:UpdateWaypoint()   -- arrived at 1: on to 2
+    check(current().x == x2)
+    PLAYER.x, PLAYER.y = P(400, 900)   -- 300 yards south of stop 4, 360 from stop 2
+    GP:UpdateWaypoint()
+    check(current().x == x2, "not yet: stop 4 isn't half as far")
+    PLAYER.x, PLAYER.y = P(380, 700)   -- stop 4 is 102 yards away, stop 2 over 300
+    GP:UpdateWaypoint()
+    check(current().x == x4 and current().y == y4, "lost: back to the nearest stop")
+
+    -- a rebuilt route (stops moved) starts again
+    local x5, y5 = P(390, 690)
+    herbs.points = { x1, y1, x2, y2, x3, y3, x5, y5 }
+    GP:UpdateWaypoint()
+    check(current().y ~= y4, "the old stop is gone")
+    check(current().x == x1 and current().y == y1, "within 20 yards of the new stop 4: on to stop 1")
+    herbs.points = { x1, y1, x2, y2, x3, y3, x4, y4 }
+
+    -- another zone, a hidden route, off
+    PLAYER.map = W
+    GP:UpdateWaypoint()
+    check(current() == nil, "another zone: no waypoint")
+    PLAYER.map = E
+    GP:UpdateWaypoint()
+    check(current() ~= nil, "back")
+    GP:SetRouteShown(herbs, false)
+    check(current() == nil, "route hidden: gone")
+    GP:SetRouteShown(herbs, true)
+    check(current() ~= nil)
+    GP:ToggleTomTom()
+    check(GP.db.tomtom == false and current() == nil, "/gpf tomtom turns it off")
+    SlashCmdList.GATHERPATHFOREVER("tomtom")
+    check(GP.db.tomtom == true and current() ~= nil, "and on")
+    GP:RestoreDefaults()
+    check(GP.db.tomtom == false and current() == nil, "Restore defaults turns it off")
+    -- TomTom errors don't break anything
+    GP.db.tomtom = true
+    TomTom.AddWaypoint = function() error("boom") end
+    GP:UpdateWaypoint()
+    check(GP.wp and GP.wp.uid == nil, "a TomTom error is caught")
+    TomTom = nil
+    GP:UpdateWaypoint()
+    check(GP.wp == nil, "TomTom gone: cleared")
+    GP.db.tomtom = false
+
+    herbs.points = kept
+    for i, r in ipairs(GP.db.routes) do r.shown = wasShown3[i] end
+    PLAYER.x, PLAYER.y = 0.5, 0.5
+    GP:Changed()
+end
+
+---------------------------------------------------------------------------
 STEP("taboo areas")
 do
     local r1 = GP.db.routes[1]

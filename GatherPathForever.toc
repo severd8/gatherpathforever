@@ -4,7 +4,7 @@
 ## Author: severd8
 ## Version: @project-version@
 ## IconTexture: Interface\AddOns\GatherPathForever\Media\Icon
-## OptionalDeps: GatherMate2
+## OptionalDeps: GatherMate2, TomTom
 ## SavedVariables: GatherPathForeverDB
 ## X-Curse-Project-ID: 1747649
 ## X-License: MIT

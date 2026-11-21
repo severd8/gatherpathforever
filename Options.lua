@@ -761,6 +761,11 @@ local function BuildDisplay(p)
     refs.joinSwitch = Setting(card4, "Line to the route", 12, -60, "joinLine",
         "A dashed line on the minimap from you to the nearest point of a route showing in your zone, "
         .. "so you know where to join it. Gone once you're on the route.")
+    refs.tomtomSwitch = Setting(card4, "TomTom waypoint", COL2, -60, "tomtom",
+        "Needs the TomTom addon. Its arrow points to the nearest stop of the route showing in your zone, "
+        .. "then to each next stop the way the arrows go, moving on when you're within "
+        .. GP.TOMTOM_ARRIVE .. " yards. Also /gpf tomtom.")
+    AddRefresher(function() refs.tomtomSwitch:SetAlpha(GP:HasTomTom() and 1 or 0.4) end)
 
     local card3 = Card(p, "Range circle", 0, -316, PAGE_W, 98)
     refs.rangeSwitch = Setting(card3, "On the minimap", 12, -30, "range",
