@@ -51,6 +51,8 @@ GP.DEFAULTS = {
     hudPicked = true,      -- nodes you've just gathered are marked as picked until they could be back
     hudPickedHide = false, -- picked nodes are left off instead of drawn as an empty ring
     hudRespawn = 10,       -- minutes a picked node stays marked
+    hudShare = true,       -- tell party and guild members with GatherPath which nodes you pick, and hear theirs
+    hudSoft = false,       -- turn on the game's soft targeting to spot nodes that are up near you
     tabooShow = true,      -- taboo areas drawn (red, hatched) on the world map
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
@@ -65,7 +67,7 @@ GP.DISPLAY_KEYS = {
     "worldRouteColor", "minimapRouteColor", "worldColor", "minimapColor",
     "arrows", "arrowsReverse", "joinLine", "tomtom",
     "hud", "hudRotate", "hudNodes", "hudSize", "hudYards", "hudAlpha", "hudY",
-    "hudCombat", "hudPicked", "hudPickedHide", "hudRespawn",
+    "hudCombat", "hudPicked", "hudPickedHide", "hudRespawn", "hudShare", "hudSoft",
     "range", "rangeYards", "rangeAlpha", "rangeColor",
     "autoAdd", "minimapButton",
 }
@@ -197,6 +199,7 @@ function GP:RestoreDefaults()
         db[k] = type(v) == "table" and { unpack(v) } or v
     end
     db.hiddenWas = nil   -- lines hidden from the minimap button come back too
+    if self.ApplySoftTargeting then self:ApplySoftTargeting() end   -- soft targeting back as it was
     if self.UpdateMinimapButton then self:UpdateMinimapButton() end
     self:Changed()
 end
@@ -1601,6 +1604,7 @@ function GP:SetupMinimap()
         if frame.tomWait <= 0 then
             frame.tomWait = 8   -- about 4 times a second
             self:UpdateWaypoint()
+            self:CheckSoftTarget()
         end
         frame.speedWait = frame.speedWait - 1
         if frame.speedWait <= 0 then
@@ -1780,6 +1784,7 @@ GP.HUD_KIND_COLORS = {
 GP.HUD_DOT = 6           -- node dot size (pixels)
 GP.HUD_RING = 0.25       -- the edge ring's opacity (times the HUD's)
 GP.HUD_PICKED_SIDES = 8  -- a picked node's empty ring, in lines
+GP.HUD_UP_WIDTH = 1.25   -- the white ring round a node seen up
 GP.nodeVersion = 0       -- bumped when GatherMate2 adds or deletes a node, or the skip list changes
 GP.PICK_YARDS = 15       -- GatherMate2 adding a node this close to you means you just gathered it
 GP.PICK_MAX = 200        -- picked nodes remembered at most
@@ -1804,6 +1809,16 @@ function GP:MarkPicked(mapID, kind, x, y)
     local w, h = Yards(mapID)
     local dx, dy = (px - x) * w, (py - y) * h
     if dx * dx + dy * dy > self.PICK_YARDS * self.PICK_YARDS then return end
+    self:AddPicked(mapID, kind, x, y)
+    self:SharePick(mapID, kind, x, y)
+    return true
+end
+
+-- Marks a node as picked (by you or someone in your party or guild)
+function GP:AddPicked(mapID, kind, x, y)
+    local db = self.db
+    local w, h = Yards(mapID)
+    self:ClearUp(mapID, x, y, w, h)
     local list = db.picked
     -- picking the same node again restarts its time
     for i = #list, 1, -1 do
@@ -1824,7 +1839,150 @@ function GP:ExpirePicked()
     for i = #list, 1, -1 do
         if list[i][5] <= cutoff then table.remove(list, i); gone = true end
     end
+    local up, upCut = self.up, Now() - self.UP_KEEP
+    for i = #up, 1, -1 do
+        if up[i][4] <= upCut then table.remove(up, i); gone = true end
+    end
     if gone then self.pickedVersion = self.pickedVersion + 1 end
+end
+
+---------------------------------------------------------------------------
+-- Nodes seen up (since 1.17.0): the game's soft targeting (the interact
+-- key's) picks the herb or vein in front of you, up to SOFT_RANGE yards,
+-- as the "softinteract" unit. Its name, matched to the nearest GatherMate2
+-- node of that name, tells us that node is up right now. Marked for
+-- UP_KEEP seconds, or until it's picked.
+---------------------------------------------------------------------------
+GP.UP_KEEP = 300
+GP.SOFT_RANGE = 30   -- yards we set the soft target's reach to
+GP.SOFT_MATCH = 45   -- yards from you a node may be to match it
+GP.up = {}           -- { { mapID, x, y, time }, ... }
+GP.SOFT_CVARS = { SoftTargetInteract = "3", SoftTargetInteractRange = tostring(GP.SOFT_RANGE), SoftTargetInteractArc = "2" }
+
+local function Readable(v)
+    return v ~= nil and not (issecretvalue and issecretvalue(v))
+end
+
+function GP:ClearUp(mapID, x, y, w, h)
+    local up, r2 = self.up, self.PICK_YARDS * self.PICK_YARDS
+    for i = #up, 1, -1 do
+        local u = up[i]
+        if u[1] == mapID and ((u[2] - x) * w) ^ 2 + ((u[3] - y) * h) ^ 2 <= r2 then table.remove(up, i) end
+    end
+end
+
+function GP:IsUp(mapID, x, y, w, h)
+    local r2 = self.PICK_YARDS * self.PICK_YARDS
+    for _, u in ipairs(self.up) do
+        if u[1] == mapID and ((u[2] - x) * w) ^ 2 + ((u[3] - y) * h) ^ 2 <= r2 then return true end
+    end
+    return false
+end
+
+-- What the soft target is now: a node of one of your routes? Then it's up.
+function GP:CheckSoftTarget()
+    local db = self.db
+    if not (db and db.hud and db.hudNodes and UnitExists and UnitName) then return end
+    local ok, exists = pcall(UnitExists, "softinteract")
+    if not (ok and Readable(exists) and exists) then return end
+    if UnitIsGameObject then
+        local ok2, obj = pcall(UnitIsGameObject, "softinteract")
+        if ok2 and Readable(obj) and not obj then return end
+    end
+    local ok3, name = pcall(UnitName, "softinteract")
+    if not (ok3 and Readable(name) and type(name) == "string" and name ~= "") then return end
+    local best, bestD, bestMap
+    for _, route in ipairs(db.routes) do
+        if route.shown and not route.working then
+            local px, py = PlayerPos(route.mapID)
+            if px then
+                local w, h = Yards(route.mapID)
+                for kind, names in pairs(route.kinds) do
+                    if names[name] then
+                        self:EachNode(route.mapID, kind, function(x, y, n)
+                            if n == name then
+                                local d = ((x - px) * w) ^ 2 + ((y - py) * h) ^ 2
+                                if d <= self.SOFT_MATCH * self.SOFT_MATCH and (not bestD or d < bestD) then
+                                    best, bestD, bestMap = { x, y }, d, route.mapID
+                                end
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+    end
+    if not best then return end
+    local w, h = Yards(bestMap)
+    self:ClearUp(bestMap, best[1], best[2], w, h)
+    -- it's up, so it grew back: no longer picked
+    local list, r2 = db.picked, self.PICK_YARDS * self.PICK_YARDS
+    for i = #list, 1, -1 do
+        local p = list[i]
+        if p[1] == bestMap and ((p[2] - best[1]) * w) ^ 2 + ((p[3] - best[2]) * h) ^ 2 <= r2 then table.remove(list, i) end
+    end
+    table.insert(self.up, { bestMap, best[1], best[2], Now() })
+    while #self.up > self.PICK_MAX do table.remove(self.up, 1) end
+    self.pickedVersion = self.pickedVersion + 1
+    return true
+end
+
+-- Spot nodes near me: sets the soft targeting CVars (keeping what they were,
+-- to put back when it's turned off)
+function GP:ApplySoftTargeting()
+    local db = self.db
+    if not (GetCVar and SetCVar) then return end
+    if db.hudSoft then
+        if not db.softWas then
+            local was = {}
+            for k in pairs(self.SOFT_CVARS) do was[k] = GetCVar(k) end
+            db.softWas = was
+        end
+        for k, v in pairs(self.SOFT_CVARS) do pcall(SetCVar, k, v) end
+    elseif db.softWas then
+        for k, v in pairs(db.softWas) do
+            if type(v) == "string" then pcall(SetCVar, k, v) end
+        end
+        db.softWas = nil
+    end
+end
+
+---------------------------------------------------------------------------
+-- Shared picks (since 1.17.0): when you pick a node, party (or raid) and
+-- guild members with GatherPath hear about it, and theirs reach you.
+-- Message: "P1:mapID:x:y:kind#" (x, y 0-1 to 4 places, kind = its place in GP.KINDS).
+---------------------------------------------------------------------------
+GP.SHARE_PREFIX = "GPForever"
+
+function GP:SharePick(mapID, kind, x, y)
+    local db = self.db
+    if not (db.hudShare and C_ChatInfo and C_ChatInfo.SendAddonMessage) then return end
+    local k
+    for i, v in ipairs(self.KINDS) do if v == kind then k = i end end
+    if not k then return end
+    local msg = ("P1:%d:%.4f:%.4f:%d"):format(mapID, x, y, k)
+    if IsInGroup and IsInGroup() then
+        local chan = (IsInRaid and IsInRaid()) and "RAID" or "PARTY"
+        pcall(C_ChatInfo.SendAddonMessage, self.SHARE_PREFIX, msg, chan)
+    end
+    if IsInGuild and IsInGuild() then
+        pcall(C_ChatInfo.SendAddonMessage, self.SHARE_PREFIX, msg, "GUILD")
+    end
+    return msg
+end
+
+function GP:OnShareMessage(prefix, text, channel, sender)
+    local db = self.db
+    if not (db and db.hudShare) or prefix ~= self.SHARE_PREFIX then return end
+    if not (Readable(text) and Readable(sender) and type(text) == "string") then return end
+    local me = UnitName and UnitName("player")
+    local short = type(sender) == "string" and sender:match("^([^%-]+)") or sender
+    if me and (sender == me or short == me) then return end
+    local mapID, x, y, k = text:match("^P1:(%d+):([%d%.]+):([%d%.]+):(%d+)$")
+    mapID, x, y, k = tonumber(mapID), tonumber(x), tonumber(y), tonumber(k)
+    if not (mapID and x and y and k) or x < 0 or x > 1 or y < 0 or y > 1 or not self.KINDS[k] then return end
+    self:AddPicked(mapID, self.KINDS[k], x, y)
+    return true
 end
 
 -- Whether a node at x, y on this map was gathered lately
@@ -1907,7 +2065,7 @@ function GP:DrawHud(force)
         return
     end
     local size, half = db.hudSize, db.hudSize / 2
-    if db.hudPicked then self:ExpirePicked() end
+    self:ExpirePicked()
     -- the way you face (nil indoors in some places: north); north up still turns your arrow
     local facing = GetPlayerFacing and GetPlayerFacing() or 0
 
@@ -1968,7 +2126,7 @@ function GP:DrawHud(force)
             local color = self:LineColor(route, "minimap")
             if db.hudNodes then
                 local r2 = (inside - dot) ^ 2
-                local marks = db.hudPicked and #db.picked > 0
+                local marks = db.hudPicked and #db.picked > 0   -- (the up rings show whatever this is)
                 for _, node in ipairs(self:HudNodes(route)) do
                     local dx = (node[1] - at[1]) * w * pxPerYard
                     local dy = (node[2] - at[2]) * h * pxPerYard
@@ -1988,6 +2146,18 @@ function GP:DrawHud(force)
                                 line:SetEndPoint("CENTER", f, dx + rr * cos(a2), -dy + rr * sin(a2))
                             end
                         else
+                            if #self.up > 0 and self:IsUp(route.mapID, node[1], node[2], w, h) then
+                                -- seen up: a white ring round its dot
+                                local rr = dot / 2 + 2.5
+                                for i = 1, self.HUD_PICKED_SIDES do
+                                    local a1 = (i - 1) / self.HUD_PICKED_SIDES * 2 * math.pi
+                                    local a2 = i / self.HUD_PICKED_SIDES * 2 * math.pi
+                                    local line = f.dots:Get()
+                                    Paint(line, { 1, 1, 1 }, 0.9, self.HUD_UP_WIDTH)
+                                    line:SetStartPoint("CENTER", f, dx + rr * cos(a1), -dy + rr * sin(a1))
+                                    line:SetEndPoint("CENTER", f, dx + rr * cos(a2), -dy + rr * sin(a2))
+                                end
+                            end
                             local line = f.dots:Get()
                             Paint(line, color, 1, dot)
                             line:SetStartPoint("CENTER", f, dx - dot / 2, -dy)
@@ -2442,7 +2612,12 @@ events:RegisterEvent("PLAYER_ENTERING_WORLD")
 pcall(events.RegisterEvent, events, "ZONE_CHANGED_NEW_AREA")
 pcall(events.RegisterEvent, events, "PLAYER_REGEN_DISABLED")   -- the HUD can hide in combat
 pcall(events.RegisterEvent, events, "PLAYER_REGEN_ENABLED")
-events:SetScript("OnEvent", function(_, event, arg1)
+pcall(events.RegisterEvent, events, "PLAYER_SOFT_INTERACT_CHANGED")   -- a node in front of you: up
+pcall(events.RegisterEvent, events, "CHAT_MSG_ADDON")                  -- party and guild picks
+if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+    pcall(C_ChatInfo.RegisterAddonMessagePrefix, GP.SHARE_PREFIX)
+end
+events:SetScript("OnEvent", function(_, event, arg1, ...)
     if event == "ADDON_LOADED" then
         if arg1 == ADDON then
             GP:LoadSettings()
@@ -2460,6 +2635,10 @@ events:SetScript("OnEvent", function(_, event, arg1)
         if not GP:HasGatherMate() then
             Print("needs |cffffd100GatherMate2|r for its herb and ore nodes. Install it from CurseForge, then /reload.")
         end
+    elseif event == "PLAYER_SOFT_INTERACT_CHANGED" then
+        GP:CheckSoftTarget()
+    elseif event == "CHAT_MSG_ADDON" then
+        GP:OnShareMessage(arg1, ...)
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
         GP:DrawHud(true)
     else

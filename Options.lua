@@ -845,7 +845,7 @@ local function StepSlider(parent, text, x, y, key, suffix, step, tip)
 end
 
 local function BuildHud(p)
-    local card = Card(p, "HUD in the middle of the screen", 0, 0, PAGE_W, 272)
+    local card = Card(p, "HUD in the middle of the screen", 0, 0, PAGE_W, 306)
     refs.hudSwitch = Setting(card, "Show the HUD", 12, -30, "hud",
         "A see-through round map in the middle of the screen with your routes, their arrows and nodes round you, "
         .. "so you can keep your eyes on the game instead of the minimap. Also /gpf hud, or set a key for it in "
@@ -873,20 +873,29 @@ local function BuildHud(p)
         "Leave picked nodes off the HUD instead of showing an empty ring.")
     refs.hudRespawn = StepSlider(card, "Picked for", 12, -216, "hudRespawn", " min", 1,
         "How long a node stays marked as picked after you gather it.")
+    refs.hudShare = Setting(card, "Share picks", COL2, -226, "hudShare",
+        "Nodes picked by party, raid or guild members who have GatherPath show as empty rings on your HUD too, "
+        .. "and yours on theirs.")
+    refs.hudSoft = Setting(card, "Spot nodes near me", 12, -264, "hudSoft",
+        "Uses the game's soft targeting (the interact key's) to spot the herb or vein in front of you, up to "
+        .. "30 yards away. A node it spots is up right now and gets a white ring on the HUD. This turns on "
+        .. "soft targeting for game objects at 30 yards; turning it off puts your settings back.",
+        function() GP:ApplySoftTargeting() end)
     AddRefresher(function()
         local on = GP.db.hud
         for _, w in ipairs({ refs.hudRotate, refs.hudNodes, refs.hudCombat, refs.hudSize, refs.hudYards,
-            refs.hudAlpha, refs.hudY, refs.hudPicked }) do
+            refs.hudAlpha, refs.hudY, refs.hudPicked, refs.hudSoft }) do
             w:SetAlpha(on and 1 or 0.4)
         end
         local marks = on and GP.db.hudNodes and GP.db.hudPicked
         refs.hudPickedHide:SetAlpha(marks and 1 or 0.4)
         refs.hudRespawn:SetAlpha(marks and 1 or 0.4)
+        refs.hudShare:SetAlpha(marks and 1 or 0.4)
     end)
     T.Note(p, "The HUD uses the minimap's line width, colors and opacity, and the arrows and line to the route "
         .. "from the Display tab. It hides on flights, and when no route is showing in your zone. "
         .. "Set a key for it in Key Bindings, AddOns, GatherPath Forever. "
-        .. "Restore defaults on the Display tab puts these settings back too.", 0, -282, PAGE_W)
+        .. "Restore defaults on the Display tab puts these settings back too.", 0, -316, PAGE_W)
 end
 
 ---------------------------------------------------------------------------

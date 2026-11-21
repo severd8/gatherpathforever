@@ -1664,6 +1664,119 @@ do
 end
 
 ---------------------------------------------------------------------------
+STEP("HUD: nodes seen up, shared picks")
+do
+    check(GP.db.hudShare == true and GP.db.hudSoft == false, "sharing on, soft targeting off to start")
+    local wasShown = {}
+    for i, r in ipairs(GP.db.routes) do wasShown[i] = r.shown; r.shown = false end
+    local hr = { id = 998, mapID = E, name = "Up test", shown = true, color = { 0.2, 0.4, 0.6 },
+        kinds = { Mining = { ["Copper Vein"] = true } },
+        points = { 0.4 + 100 / 1600, 0.4, 0.4 + 100 / 1600, 0.4 + 50 / 1066 } }
+    table.insert(GP.db.routes, hr)
+    PLAYER.x, PLAYER.y = 0.3 + 20 / 1600, 0.3   -- 20 yards from the Copper Vein at 0.3, 0.3
+    GP.db.hud, GP.db.hudYards = true, 400
+    GP.db.picked, GP.up = {}, {}
+    GP:Changed()
+    local hud = GP.hud
+    local function count(w) local n = 0; for _, d in ipairs(Shown(hud.dots)) do if d.__thickness == w then n = n + 1 end end return n end
+    check(count(GP.HUD_DOT) == 1 and count(GP.HUD_UP_WIDTH) == 0, "a plain dot")
+    -- the soft target is a Copper Vein: the nearest one is up
+    local soft
+    UnitExists = function(u) return u == "softinteract" and soft ~= nil end
+    UnitIsGameObject = function(u) return u == "softinteract" and soft ~= nil end
+    UnitName = function(u) if u == "player" then return "Me" end if u == "softinteract" then return soft end end
+    soft = "Copper Vein"
+    FireEvent("PLAYER_SOFT_INTERACT_CHANGED", "a", "b")
+    GP:Changed()
+    check(#GP.up == 1 and near(GP.up[1][2], 0.3) and near(GP.up[1][3], 0.3), "the nearest Copper Vein is seen up")
+    check(count(GP.HUD_UP_WIDTH) == GP.HUD_PICKED_SIDES and count(GP.HUD_DOT) == 1, "a white ring round its dot")
+    -- something else, or a node too far away, isn't
+    soft = "Mailbox"
+    check(GP:CheckSoftTarget() == nil, "not a node of the route")
+    soft = "Tin Vein"
+    check(GP:CheckSoftTarget() == nil, "a kind the route doesn't have")
+    PLAYER.x, PLAYER.y = 0.5, 0.5
+    soft = "Copper Vein"
+    check(GP:CheckSoftTarget() == nil, "no Copper Vein near you")
+    PLAYER.x, PLAYER.y = 0.3 + 20 / 1600, 0.3
+    soft = nil
+    check(GP:CheckSoftTarget() == nil, "no soft target")
+    UnitIsGameObject = function() return false end
+    soft = "Copper Vein"
+    check(GP:CheckSoftTarget() == nil, "a soft target that's no game object")
+    UnitIsGameObject = function(u) return u == "softinteract" and soft ~= nil end
+    -- it goes after UP_KEEP
+    FAKE_CLOCK = FAKE_CLOCK + GP.UP_KEEP + 1
+    soft = nil
+    GP:Changed()
+    check(#GP.up == 0 and count(GP.HUD_UP_WIDTH) == 0, "the up ring goes after a while")
+    -- seen up clears a picked mark (it grew back), picking clears up
+    GP:AddPicked(E, "Mining", 0.3, 0.3)
+    check(#GP.db.picked == 1)
+    soft = "Copper Vein"
+    GP:CheckSoftTarget()
+    check(#GP.db.picked == 0 and #GP.up == 1, "seen up: no longer picked")
+    GP:AddPicked(E, "Mining", 0.3, 0.3)
+    check(#GP.up == 0, "picked: no longer up")
+    soft = nil
+    GP.db.picked = {}
+    -- shared picks: yours go out to party and guild
+    local sent = {}
+    C_ChatInfo = { SendAddonMessage = function(prefix, msg, chan) sent[#sent + 1] = { prefix, msg, chan } end }
+    IsInGroup = function() return true end
+    IsInRaid = function() return false end
+    IsInGuild = function() return true end
+    PLAYER.x, PLAYER.y = 0.3, 0.3
+    gm:Delete(E, "Mining", 0.3, 0.3)
+    gm:Add(E, "Mining", 10, 0.3, 0.3)
+    hr.points = { 0.4 + 100 / 1600, 0.4, 0.4 + 100 / 1600, 0.4 + 50 / 1066 }
+    check(#sent == 2 and sent[1][1] == "GPForever" and sent[1][3] == "PARTY" and sent[2][3] == "GUILD",
+        "your pick goes to party and guild")
+    check(sent[1][2] == ("P1:%d:0.3000:0.3000:2"):format(E), "as map, x, y and kind")
+    GP.db.picked = {}
+    -- theirs come in
+    FireEvent("CHAT_MSG_ADDON", "GPForever", ("P1:%d:0.3000:0.3000:2"):format(E), "GUILD", "Friend-Realm")
+    check(#GP.db.picked == 1 and GP.db.picked[1][4] == "Mining", "a guild member's pick is marked")
+    GP.db.picked = {}
+    FireEvent("CHAT_MSG_ADDON", "GPForever", ("P1:%d:0.3000:0.3000:2"):format(E), "GUILD", "Me-Realm")
+    check(#GP.db.picked == 0, "your own echo is ignored")
+    for _, bad in ipairs({ "P1:x:0.3:0.3:2", "P1:1429:1.5:0.3:2", "P1:1429:0.3:0.3:99", "hello" }) do
+        FireEvent("CHAT_MSG_ADDON", "GPForever", bad, "GUILD", "Friend")
+    end
+    FireEvent("CHAT_MSG_ADDON", "Other", ("P1:%d:0.3000:0.3000:2"):format(E), "GUILD", "Friend")
+    check(#GP.db.picked == 0, "junk and other addons' messages are ignored")
+    -- Share picks off: nothing out or in
+    Click((function() GP:OpenConfig("hud") return ui.hudShare end)())
+    check(GP.db.hudShare == false)
+    sent = {}
+    check(GP:SharePick(E, "Mining", 0.3, 0.3) == nil and #sent == 0, "nothing sent")
+    FireEvent("CHAT_MSG_ADDON", "GPForever", ("P1:%d:0.3000:0.3000:2"):format(E), "GUILD", "Friend")
+    check(#GP.db.picked == 0, "nothing taken in")
+    Click(ui.hudShare)
+    -- Spot nodes near me sets soft targeting, and puts it back
+    local cv = {}
+    SetCVar = function(k, v) cv[k] = v; CVARS[k] = v end
+    CVARS.SoftTargetInteract, CVARS.SoftTargetInteractRange, CVARS.SoftTargetInteractArc = "0", "10", "0"
+    Click(ui.hudSoft)
+    check(GP.db.hudSoft == true and CVARS.SoftTargetInteract == "3" and CVARS.SoftTargetInteractRange == "30"
+        and CVARS.SoftTargetInteractArc == "2", "on: soft targeting for objects at 30 yards")
+    Click(ui.hudSoft)
+    check(GP.db.hudSoft == false and CVARS.SoftTargetInteract == "0" and CVARS.SoftTargetInteractRange == "10"
+        and CVARS.SoftTargetInteractArc == "0" and GP.db.softWas == nil, "off: your settings back")
+    Click(ui.hudSoft)
+    GP:RestoreDefaults()
+    check(GP.db.hudSoft == false and CVARS.SoftTargetInteract == "0", "Restore defaults puts them back too")
+    -- tidy up
+    UnitExists, UnitIsGameObject, UnitName, C_ChatInfo, IsInGroup, IsInRaid, IsInGuild, SetCVar = nil
+    GP.db.picked, GP.up = {}, {}
+    table.remove(GP.db.routes)
+    for i, r in ipairs(GP.db.routes) do r.shown = wasShown[i] end
+    GP.db.hud, GP.db.hudYards = false, 150
+    PLAYER.x, PLAYER.y = 0.5, 0.5
+    GP:Changed()
+end
+
+---------------------------------------------------------------------------
 STEP("minimap test (/gpf scantest)")
 do
     local names = GP.TooltipNames("|TInterface\\Minimap\\Up:0|t |cffffffffSilverleaf|r\n Copper Vein \n\n")

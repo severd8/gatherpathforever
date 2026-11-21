@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.17.0
+
+The game no longer lets addons read the herb and ore dots on the minimap (since a WoW: Forever update on November 7, which hit other addons too), so the HUD can't show every node that's up. These two get as close as the game allows. Thanks to RawG for the idea.
+
+- **Spot nodes near me** (HUD tab, off to start): uses the game's soft targeting, the same thing the interact key uses, to spot the herb or vein in front of you up to **30 yards** away. A node it spots is up right now and gets a **white ring** round its dot on the HUD for 5 minutes, or until it's picked. Switching it on turns on soft targeting for objects at 30 yards; switching it off puts your own settings back.
+- **Share picks** (HUD tab, on to start): when you pick a node, party, raid and guild members who have GatherPath see it as an empty ring on their HUD, and you see theirs. So a node someone else just took doesn't look worth riding to.
+- A node that's spotted up stops showing as picked, since it has grown back.
+
 ## 1.16.1
 
 - New **/gpf scantest**: a quick test of whether the game lets GatherPath read the herb and ore dots on your minimap. If it can, a later version can show on the HUD which nodes are really up right now, not just the ones you picked. Thanks to RawG for the idea.
