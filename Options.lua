@@ -817,6 +817,17 @@ local function BuildDisplay(p)
             "Restore", function() GP:RestoreDefaults() end)
     end)
     refs.restoreDefaults = restore
+
+    local combine = FlatButton(p, "Combine duplicate nodes", 190, 22)
+    combine:SetPoint("TOPRIGHT", 0, -506)
+    T.Tooltip(combine, "Combine duplicate nodes", "GatherMate2 sometimes saves the same herb or vein more than "
+        .. "once in one place, so its icons stack on the map. This runs GatherMate2's own Cleanup Database, which "
+        .. "keeps one of each. Also /gpf combine.")
+    combine:SetScript("OnClick", function()
+        GP:Confirm("Combine GatherMate2 nodes saved more than once in the same place? GatherMate2 keeps one of each.",
+            "Combine", function() GP:CombineDuplicates() end)
+    end)
+    refs.combine = combine
 end
 
 ---------------------------------------------------------------------------
@@ -834,15 +845,18 @@ local function StepSlider(parent, text, x, y, key, suffix, step, tip)
 end
 
 local function BuildHud(p)
-    local card = Card(p, "HUD in the middle of the screen", 0, 0, PAGE_W, 190)
+    local card = Card(p, "HUD in the middle of the screen", 0, 0, PAGE_W, 272)
     refs.hudSwitch = Setting(card, "Show the HUD", 12, -30, "hud",
         "A see-through round map in the middle of the screen with your routes, their arrows and nodes round you, "
-        .. "so you can keep your eyes on the game instead of the minimap. Also /gpf hud.")
+        .. "so you can keep your eyes on the game instead of the minimap. Also /gpf hud, or set a key for it in "
+        .. "Key Bindings, AddOns, GatherPath Forever.")
     refs.hudRotate = Setting(card, "Turn with me", COL2, -30, "hudRotate",
         "Up on the HUD is the way you face, so the line ahead of you is the way to go. "
         .. "Turn this off to keep north up.")
     refs.hudNodes = Setting(card, "Show nodes", 12, -60, "hudNodes",
         "GatherMate2's nodes of your routes as dots: green herbs, orange ore, blue fishing, yellow treasure.")
+    refs.hudCombat = Setting(card, "Show in combat", COL2, -60, "hudCombat",
+        "Keep the HUD up while you fight. Turn this off to hide it in combat.")
     refs.hudSize = StepSlider(card, "Size", 12, -94, "hudSize", " px", 10,
         "How wide the HUD is on the screen.")
     refs.hudYards = StepSlider(card, "Zoom", COL2, -94, "hudYards", " yards", 10,
@@ -851,15 +865,28 @@ local function BuildHud(p)
         "How see-through the whole HUD is.")
     refs.hudY = StepSlider(card, "Height", COL2, -138, "hudY", " px", 10,
         "Move the HUD up or down from the middle of the screen.")
+    refs.hudPicked = Setting(card, "Mark picked nodes", 12, -182, "hudPicked",
+        "A node you've just gathered shows as an empty ring until it could have grown back, so you can see "
+        .. "which dots are worth riding to. The game doesn't tell addons which herbs and veins are really up, "
+        .. "so this goes by what you picked yourself.")
+    refs.hudPickedHide = Setting(card, "Hide picked nodes", COL2, -182, "hudPickedHide",
+        "Leave picked nodes off the HUD instead of showing an empty ring.")
+    refs.hudRespawn = StepSlider(card, "Picked for", 12, -216, "hudRespawn", " min", 1,
+        "How long a node stays marked as picked after you gather it.")
     AddRefresher(function()
         local on = GP.db.hud
-        for _, w in ipairs({ refs.hudRotate, refs.hudNodes, refs.hudSize, refs.hudYards, refs.hudAlpha, refs.hudY }) do
+        for _, w in ipairs({ refs.hudRotate, refs.hudNodes, refs.hudCombat, refs.hudSize, refs.hudYards,
+            refs.hudAlpha, refs.hudY, refs.hudPicked }) do
             w:SetAlpha(on and 1 or 0.4)
         end
+        local marks = on and GP.db.hudNodes and GP.db.hudPicked
+        refs.hudPickedHide:SetAlpha(marks and 1 or 0.4)
+        refs.hudRespawn:SetAlpha(marks and 1 or 0.4)
     end)
     T.Note(p, "The HUD uses the minimap's line width, colors and opacity, and the arrows and line to the route "
-        .. "from the Display tab. It hides in combat and on flights, and when no route is showing in your zone. "
-        .. "Restore defaults on the Display tab puts these settings back too.", 0, -200, PAGE_W)
+        .. "from the Display tab. It hides on flights, and when no route is showing in your zone. "
+        .. "Set a key for it in Key Bindings, AddOns, GatherPath Forever. "
+        .. "Restore defaults on the Display tab puts these settings back too.", 0, -282, PAGE_W)
 end
 
 ---------------------------------------------------------------------------

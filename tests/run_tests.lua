@@ -1223,6 +1223,8 @@ STEP("HUD in the middle of the screen")
 do
     check(GP.db.hud == false and GP.db.hudRotate == true and GP.db.hudNodes == true, "off to start, turning, with nodes")
     check(GP.db.hudSize == 320 and GP.db.hudYards == 150 and GP.db.hudAlpha == 60 and GP.db.hudY == 0)
+    check(GP.db.hudCombat == true and GP.db.hudPicked == true and GP.db.hudPickedHide == false
+        and GP.db.hudRespawn == 10, "shown in combat, picked nodes marked for 10 minutes")
     GP:Changed()
     check(not (GP.hud and GP.hud:IsShown()), "nothing on screen while it's off")
     -- a route of its own, the others hidden
@@ -1293,6 +1295,87 @@ do
     gm:Delete(E, "Mining", 0.35, 0.40)
     check(#Shown(hud.dots) == 2, "a deleted one goes")
     for i = #hr.points, 5, -1 do hr.points[i] = nil end   -- the found node joined the route: back to two stops
+    -- picked nodes: GatherMate2 adding a node where you stand means you gathered it
+    local function rings() local n = 0; for _, d in ipairs(Shown(hud.dots)) do if d.__thickness == 1.5 then n = n + 1 end end return n end
+    check(rings() == 0 and #GP.db.picked == 0, "nothing picked yet")
+    PLAYER.x, PLAYER.y = 0.3, 0.3
+    local now = time()
+    local two = { unpack(hr.points) }
+    gm:Delete(E, "Mining", 0.3, 0.3)
+    gm:Add(E, "Mining", 10, 0.3, 0.3)
+    hr.points = { unpack(two) }   -- it may have joined the route: back to two stops
+    PLAYER.x, PLAYER.y = 0.4, 0.4
+    GP:Changed()
+    check(#GP.db.picked == 1 and GP.db.picked[1][1] == E and GP.db.picked[1][4] == "Mining", "picking it is remembered")
+    check(rings() == GP.HUD_PICKED_SIDES and #Shown(hud.dots) == 1 + GP.HUD_PICKED_SIDES,
+        "the picked node is an empty ring, the other a dot")
+    -- a node someone else shares from far away isn't one you picked
+    gm:Add(E, "Mining", 10, 0.36, 0.40)
+    check(#GP.db.picked == 1, "a node added away from you isn't picked")
+    gm:Delete(E, "Mining", 0.36, 0.40)
+    hr.points = { unpack(two) }
+    -- hidden instead
+    Click((function() GP:OpenConfig("hud") return ui.hudPickedHide end)())
+    check(GP.db.hudPickedHide == true and rings() == 0 and #Shown(hud.dots) == 1, "Hide picked nodes")
+    Click(ui.hudPickedHide)
+    -- marks off
+    Click(ui.hudPicked)
+    check(GP.db.hudPicked == false and rings() == 0 and #Shown(hud.dots) == 2, "Mark picked nodes off: plain dots")
+    Click(ui.hudPicked)
+    check(rings() == GP.HUD_PICKED_SIDES)
+    -- the mark runs out after the respawn time
+    FAKE_CLOCK = now + 9 * 60
+    Tick(0.05)
+    check(rings() == GP.HUD_PICKED_SIDES, "still picked after 9 minutes")
+    FAKE_CLOCK = now + 10 * 60 + 1
+    Tick(0.05)
+    check(rings() == 0 and #Shown(hud.dots) == 2 and #GP.db.picked == 0, "back to a dot after 10")
+    -- kept over a reload, junk dropped
+    GatherPathForeverDB.picked = { { E, 0.3, 0.3, "Mining", FAKE_CLOCK }, { "x" }, 5 }
+    GP:LoadSettings()
+    check(#GP.db.picked == 1, "saved marks load, broken ones are dropped")
+    GP.db.picked = {}
+    GP:Changed()
+    -- the same vein saved twice in one place is one dot
+    check(#Shown(hud.dots) == 2)
+    gm:Add(E, "Mining", 10, 0.3 + 5 / 1600, 0.3)
+    hr.points = { unpack(two) }
+    GP:Changed()
+    check(#Shown(hud.dots) == 2, "a duplicate 5 yards away: still one dot")
+    gm:Add(E, "Mining", 11, 0.3 + 5 / 1600, 0.3 + 5 / 1066, true)   -- Tin there is another node
+    hr.kinds.Mining["Tin Vein"] = true
+    GP.nodeVersion = GP.nodeVersion + 1
+    GP:Changed()
+    check(#Shown(hud.dots) == 3, "a different kind in the same place keeps its own dot")
+    hr.kinds.Mining["Tin Vein"] = nil
+    gm.gmdbs.Mining[E][gm:EncodeLoc(0.3 + 5 / 1600, 0.3 + 5 / 1066)] = nil
+    -- Combine duplicate nodes runs GatherMate2's own cleanup; its deletes don't take stops out of routes
+    local cleaned, running = 0, false
+    gm.IsCleanupRunning = function() return running end
+    gm.CleanupDB = function(self)
+        cleaned = cleaned + 1
+        running = true
+        local stops = #hr.points
+        hr.sight = 0
+        hr.points[#hr.points + 1] = 0.3 + 5 / 1600; hr.points[#hr.points + 1] = 0.3
+        self:Delete(E, "Mining", 0.3 + 5 / 1600, 0.3)
+        check(#hr.points == stops + 2, "a duplicate GatherMate2 removes keeps its route stop")
+        running = false
+        self:Send("GatherMate2Cleanup")
+    end
+    Click((function() GP:OpenConfig("display") return ui.combine end)())
+    check(cleaned == 0, "asks first")
+    Click(GP.confirmWindow.yes)
+    check(cleaned == 1 and logHas("duplicate nodes combined") and not GP.combining, "Combine runs GatherMate2's cleanup")
+    SlashCmdList.GATHERPATHFOREVER("combine")
+    check(cleaned == 2, "/gpf combine")
+    hr.sight = nil
+    hr.points = { unpack(two) }
+    gm.CleanupDB = function() error("boom") end
+    check(GP:CombineDuplicates() == false and not GP.combining and logHas("couldn't combine"), "a GatherMate2 error is caught")
+    gm.CleanupDB, gm.IsCleanupRunning = nil, nil
+    check(GP:CombineDuplicates() == false, "an old GatherMate2 without it")
+    GP:Changed()
     Click(ui.hudNodes)
     check(GP.db.hudNodes == false and #Shown(hud.dots) == 0, "Show nodes off")
     Click(ui.hudNodes)
@@ -1322,13 +1405,18 @@ do
     hr.points = { 0.4 + 100 / 1600, 0.4, 0.4 + 100 / 1600, 0.4 + 50 / 1066 }
     GP:Changed()
     check(#Shown(hud.join) > 0, "dashes toward the route")
-    -- combat, flights, other zones
+    -- combat: stays up, unless Show in combat is off
     IN_COMBAT = true
     FireEvent("PLAYER_REGEN_DISABLED")
-    check(not hud:IsShown(), "hidden in combat")
+    check(hud:IsShown(), "shown in combat")
+    Click(ui.hudCombat)
+    check(GP.db.hudCombat == false and not hud:IsShown(), "Show in combat off: hidden in combat")
     IN_COMBAT = false
     FireEvent("PLAYER_REGEN_ENABLED")
     check(hud:IsShown(), "back after")
+    Click(ui.hudCombat)
+    check(GP.db.hudCombat == true)
+    -- flights, other zones
     UnitOnTaxi = function() return true end
     GP:Changed()
     check(not hud:IsShown(), "hidden on a flight")
@@ -1348,7 +1436,20 @@ do
     check(GP.db.hud == false and not hud:IsShown(), "Show the HUD off")
     SlashCmdList.GATHERPATHFOREVER("hud")
     check(GP.db.hud == true and hud:IsShown())
+    -- the key binding
+    check(BINDING_HEADER_GATHERPATHFOREVER == "GatherPath Forever" and BINDING_NAME_GATHERPATHFOREVER_HUD ~= nil,
+        "names in the Key Bindings menu")
+    local xml = assert(io.open("Bindings.xml")):read("*a")
+    check(xml:find('name="GATHERPATHFOREVER_HUD"', 1, true) and xml:find("GatherPathForever_ToggleHud()", 1, true),
+        "Bindings.xml calls the toggle")
+    GatherPathForever_ToggleHud()
+    check(GP.db.hud == false and not hud:IsShown() and logHas("HUD off"), "the key turns it off")
+    GatherPathForever_ToggleHud()
+    check(GP.db.hud == true and hud:IsShown(), "and on")
+    GP.db.hudCombat, GP.db.hudPicked, GP.db.hudPickedHide, GP.db.hudRespawn = false, false, true, 25
     GP:RestoreDefaults()
+    check(GP.db.hudCombat == true and GP.db.hudPicked == true and GP.db.hudPickedHide == false
+        and GP.db.hudRespawn == 10, "Restore defaults puts the new HUD settings back")
     check(GP.db.hud == false and not hud:IsShown(), "Restore defaults turns it off")
     -- tidy up
     table.remove(GP.db.routes)

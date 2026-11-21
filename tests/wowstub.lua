@@ -121,6 +121,8 @@ GameFontHighlightSmall = {}
 SlashCmdList = {}
 
 FAKE_TIME = 1000
+FAKE_CLOCK = 1700000000
+function time() return FAKE_CLOCK end
 function GetTime() return FAKE_TIME end
 local profile = 0
 function debugprofilestop() profile = profile + 0.5 return profile end

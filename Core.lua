@@ -47,6 +47,10 @@ GP.DEFAULTS = {
     hudYards = 150,        -- yards from its middle to its edge (the zoom)
     hudAlpha = 60,         -- opacity (percent)
     hudY = 0,              -- pixels up (or down) from the middle of the screen
+    hudCombat = true,      -- it stays up in combat (1.14.0 always hid it)
+    hudPicked = true,      -- nodes you've just gathered are marked as picked until they could be back
+    hudPickedHide = false, -- picked nodes are left off instead of drawn as an empty ring
+    hudRespawn = 10,       -- minutes a picked node stays marked
     tabooShow = true,      -- taboo areas drawn (red, hatched) on the world map
     autoAdd = true,        -- nodes GatherMate2 finds later join the routes they belong to
     minimapButton = true,
@@ -61,6 +65,7 @@ GP.DISPLAY_KEYS = {
     "worldRouteColor", "minimapRouteColor", "worldColor", "minimapColor",
     "arrows", "arrowsReverse", "joinLine", "tomtom",
     "hud", "hudRotate", "hudNodes", "hudSize", "hudYards", "hudAlpha", "hudY",
+    "hudCombat", "hudPicked", "hudPickedHide", "hudRespawn",
     "range", "rangeYards", "rangeAlpha", "rangeColor",
     "autoAdd", "minimapButton",
 }
@@ -76,6 +81,7 @@ GP.RANGES = {
     hudYards = { 50, 400 },
     hudAlpha = { 10, 100 },
     hudY = { -300, 300 },
+    hudRespawn = { 1, 30 },
 }
 
 -- New routes take these in turn
@@ -152,6 +158,17 @@ function GP:LoadSettings()
         end
     end
     db.taboos = taboos
+    -- nodes you've gathered lately (the HUD's empty rings): { { mapID, x, y, kind, time }, ... }
+    local picked = {}
+    if type(db.picked) == "table" then
+        for _, p in ipairs(db.picked) do
+            if type(p) == "table" and type(p[1]) == "number" and type(p[2]) == "number"
+                and type(p[3]) == "number" and type(p[4]) == "string" and type(p[5]) == "number" then
+                picked[#picked + 1] = { p[1], p[2], p[3], p[4], p[5] }
+            end
+        end
+    end
+    db.picked = picked
     db.routes = type(db.routes) == "table" and db.routes or {}
     db.nextID = db.nextID or 1
     -- drop anything that isn't a usable route
@@ -965,6 +982,25 @@ function GP:RemoveNode(mapID, kind, x, y, name)
     return removed
 end
 
+-- Combine duplicates: GatherMate2 sometimes saves the same herb or vein more
+-- than once in one place (stacked icons with one name listed three times).
+-- Its own Cleanup Database merges nodes of the same kind closer than its
+-- cleanup range (15 yards); we only start it, through its CleanupDB.
+function GP:CombineDuplicates()
+    local gm = _G.GatherMate2
+    if not (self:HasGatherMate() and type(gm.CleanupDB) == "function") then
+        Print("combining duplicates needs |cffffd100GatherMate2|r.")
+        return false
+    end
+    self.combining = true
+    if not pcall(gm.CleanupDB, gm) then
+        self.combining = nil
+        Print("GatherMate2 couldn't combine the duplicates. Try Cleanup Database in GatherMate2's own options.")
+        return false
+    end
+    return true
+end
+
 function GP:ListenToGatherMate()
     if self.listening or not self:HasGatherMate() then return end
     local gm = _G.GatherMate2
@@ -977,12 +1013,24 @@ function GP:ListenToGatherMate()
     pcall(gm.RegisterMessage, listener, "GatherMate2NodeAdded", function(_, zone, kind, coord, name)
         local x, y = decode(coord)
         self.nodeVersion = self.nodeVersion + 1   -- the HUD's node dots
+        if x then self:MarkPicked(zone, kind, x, y) end
         if x and type(name) == "string" then self:AddNode(zone, kind, x, y, name) end
     end)
     pcall(gm.RegisterMessage, listener, "GatherMate2NodeDeleted", function(_, zone, kind, coord, name)
         local x, y = decode(coord)
         self.nodeVersion = self.nodeVersion + 1
+        -- GatherMate2 combining duplicates: another copy of the node stays, so its stop does too
+        local ok, cleaning = pcall(gm.IsCleanupRunning, gm)
+        if self.combining or (ok and cleaning) then return end
         if x and type(name) == "string" then self:RemoveNode(zone, kind, x, y, name) end
+    end)
+    pcall(gm.RegisterMessage, listener, "GatherMate2Cleanup", function()
+        self.nodeVersion = self.nodeVersion + 1
+        if self.combining then
+            self.combining = nil
+            Print("duplicate nodes combined. Click Rebuild on a route to take out any stops it had twice.")
+        end
+        self:Changed()
     end)
     self.listening = true
 end
@@ -1720,7 +1768,8 @@ end
 -- with the routes round you, their arrows, the line to the route and
 -- GatherMate2's nodes, so you can follow a route without watching the
 -- minimap. Our own frame on UIParent, never takes the mouse. Up is the way
--- you face (db.hudRotate), else north. Hidden in combat and on a flight.
+-- you face (db.hudRotate), else north. Hidden on a flight, and in combat if
+-- db.hudCombat is off. A key binding (Bindings.xml) turns it on and off.
 ---------------------------------------------------------------------------
 GP.HUD_KIND_COLORS = {
     ["Herb Gathering"] = { 0.35, 0.95, 0.35 },
@@ -1730,7 +1779,62 @@ GP.HUD_KIND_COLORS = {
 }
 GP.HUD_DOT = 6           -- node dot size (pixels)
 GP.HUD_RING = 0.25       -- the edge ring's opacity (times the HUD's)
+GP.HUD_PICKED_SIDES = 8  -- a picked node's empty ring, in lines
 GP.nodeVersion = 0       -- bumped when GatherMate2 adds or deletes a node, or the skip list changes
+GP.PICK_YARDS = 15       -- GatherMate2 adding a node this close to you means you just gathered it
+GP.PICK_MAX = 200        -- picked nodes remembered at most
+GP.pickedVersion = 0     -- bumped when a node is marked or a mark runs out
+
+local function Now()
+    if time then return time() end
+    return GetTime()
+end
+
+-- Nobody can see whether a herb or vein is really up: the game draws the
+-- minimap's tracking blips itself and doesn't tell addons where they are
+-- (UnitClosestGameObjectPosition's answers are secret, and herbs and ore
+-- aren't vignettes). What we do know is when you gather one: GatherMate2
+-- adds (or moves) the node where you're standing. Mark it as picked for
+-- db.hudRespawn minutes, the time it might take to come back.
+function GP:MarkPicked(mapID, kind, x, y)
+    local db = self.db
+    if not (db and type(mapID) == "number" and type(kind) == "string") then return end
+    local px, py = PlayerPos(mapID)
+    if not px then return end
+    local w, h = Yards(mapID)
+    local dx, dy = (px - x) * w, (py - y) * h
+    if dx * dx + dy * dy > self.PICK_YARDS * self.PICK_YARDS then return end
+    local list = db.picked
+    -- picking the same node again restarts its time
+    for i = #list, 1, -1 do
+        local p = list[i]
+        if p[1] == mapID and ((p[2] - x) * w) ^ 2 + ((p[3] - y) * h) ^ 2 <= self.PICK_YARDS * self.PICK_YARDS then
+            table.remove(list, i)
+        end
+    end
+    list[#list + 1] = { mapID, x, y, kind, Now() }
+    while #list > self.PICK_MAX do table.remove(list, 1) end
+    self.pickedVersion = self.pickedVersion + 1
+end
+
+-- Drops the marks whose time is up
+function GP:ExpirePicked()
+    local list, cutoff = self.db.picked, Now() - self.db.hudRespawn * 60
+    local gone = false
+    for i = #list, 1, -1 do
+        if list[i][5] <= cutoff then table.remove(list, i); gone = true end
+    end
+    if gone then self.pickedVersion = self.pickedVersion + 1 end
+end
+
+-- Whether a node at x, y on this map was gathered lately
+function GP:IsPicked(mapID, x, y, w, h)
+    local r2 = self.PICK_YARDS * self.PICK_YARDS
+    for _, p in ipairs(self.db.picked) do
+        if p[1] == mapID and ((p[2] - x) * w) ^ 2 + ((p[3] - y) * h) ^ 2 <= r2 then return true end
+    end
+    return false
+end
 
 -- The nodes a route is made from, by kind: { x, y, kind } map positions.
 -- Cached on the route until its points, GatherMate2's nodes or the skip list change.
@@ -1741,9 +1845,21 @@ function GP:HudNodes(route)
     local c = cache[route]
     if c and c.key == key then return c.list end
     local list, skip = {}, self.db.skip
+    local w, h = Yards(route.mapID)
+    local r2 = self.PICK_YARDS * self.PICK_YARDS
     for kind, names in pairs(route.kinds) do
+        local seen = {}
         self:EachNode(route.mapID, kind, function(x, y, name)
-            if names[name] and not skip[name] then list[#list + 1] = { x, y, kind } end
+            if names[name] and not skip[name] then
+                -- the same herb or vein saved more than once in one place: one dot
+                local same = seen[name]
+                if not same then same = {}; seen[name] = same end
+                for _, o in ipairs(same) do
+                    if ((o[1] - x) * w) ^ 2 + ((o[2] - y) * h) ^ 2 <= r2 then return end
+                end
+                same[#same + 1] = { x, y }
+                list[#list + 1] = { x, y, kind }
+            end
         end)
     end
     cache[route] = { key = key, list = list }
@@ -1775,7 +1891,7 @@ end
 -- Why the HUD isn't showing now (nil = it can show)
 function GP:HudHidden()
     if not self.db.hud then return "off" end
-    if InCombatLockdown and InCombatLockdown() then return "combat" end
+    if not self.db.hudCombat and InCombatLockdown and InCombatLockdown() then return "combat" end
     if UnitOnTaxi and UnitOnTaxi("player") then return "taxi" end
 end
 
@@ -1791,15 +1907,17 @@ function GP:DrawHud(force)
         return
     end
     local size, half = db.hudSize, db.hudSize / 2
+    if db.hudPicked then self:ExpirePicked() end
     -- the way you face (nil indoors in some places: north); north up still turns your arrow
     local facing = GetPlayerFacing and GetPlayerFacing() or 0
 
     local mc = db.minimapColor
     local maps, any = {}, false
-    local key = ("%d:%d:%d:%d:%s:%s:%.3f:%d:%d:%s:%.3f:%.3f:%.3f:%s:%s:%s:%d"):format(size, db.hudYards, db.hudAlpha,
-        db.hudY, tostring(db.hudRotate), tostring(db.hudNodes), facing, db.minimapWidth, db.minimapAlpha,
+    local key = ("%d:%d:%d:%d:%s:%s:%.3f:%d:%d:%s:%.3f:%.3f:%.3f:%s:%s:%s:%d:%s:%s:%d"):format(size, db.hudYards,
+        db.hudAlpha, db.hudY, tostring(db.hudRotate), tostring(db.hudNodes), facing, db.minimapWidth, db.minimapAlpha,
         tostring(db.minimapRouteColor), mc[1], mc[2], mc[3], tostring(db.arrows), tostring(db.arrowsReverse),
-        tostring(db.joinLine), self.nodeVersion)
+        tostring(db.joinLine), self.nodeVersion, tostring(db.hudPicked), tostring(db.hudPickedHide),
+        self.pickedVersion)
     for _, route in ipairs(db.routes) do
         if route.shown and not route.working and maps[route.mapID] == nil then
             local x, y = PlayerPos(route.mapID)
@@ -1850,15 +1968,31 @@ function GP:DrawHud(force)
             local color = self:LineColor(route, "minimap")
             if db.hudNodes then
                 local r2 = (inside - dot) ^ 2
+                local marks = db.hudPicked and #db.picked > 0
                 for _, node in ipairs(self:HudNodes(route)) do
                     local dx = (node[1] - at[1]) * w * pxPerYard
                     local dy = (node[2] - at[2]) * h * pxPerYard
-                    if dx * dx + dy * dy <= r2 then
+                    local picked = marks and self:IsPicked(route.mapID, node[1], node[2], w, h)
+                    if dx * dx + dy * dy <= r2 and not (picked and db.hudPickedHide) then
                         if rotate then dx, dy = dx * c - dy * s, dx * s + dy * c end
-                        local line = f.dots:Get()
-                        Paint(line, self.HUD_KIND_COLORS[node[3]] or { 1, 1, 1 }, 1, dot)
-                        line:SetStartPoint("CENTER", f, dx - dot / 2, -dy)
-                        line:SetEndPoint("CENTER", f, dx + dot / 2, -dy)
+                        local color = self.HUD_KIND_COLORS[node[3]] or { 1, 1, 1 }
+                        if picked then
+                            -- an empty ring: picked, not back yet
+                            local rr = dot / 2 + 1
+                            for i = 1, self.HUD_PICKED_SIDES do
+                                local a1 = (i - 1) / self.HUD_PICKED_SIDES * 2 * math.pi
+                                local a2 = i / self.HUD_PICKED_SIDES * 2 * math.pi
+                                local line = f.dots:Get()
+                                Paint(line, color, 0.8, 1.5)
+                                line:SetStartPoint("CENTER", f, dx + rr * cos(a1), -dy + rr * sin(a1))
+                                line:SetEndPoint("CENTER", f, dx + rr * cos(a2), -dy + rr * sin(a2))
+                            end
+                        else
+                            local line = f.dots:Get()
+                            Paint(line, color, 1, dot)
+                            line:SetStartPoint("CENTER", f, dx - dot / 2, -dy)
+                            line:SetEndPoint("CENTER", f, dx + dot / 2, -dy)
+                        end
                     end
                 end
             end
@@ -1905,11 +2039,22 @@ function GP:DrawHud(force)
     f.me:Done()
 end
 
-function GP:ToggleHud()
+function GP:ToggleHud(fromKey)
     self.db.hud = not self.db.hud
-    Print(self.db.hud and "HUD on. Set its size, zoom and opacity on the HUD tab (/gpf)."
-        or "HUD off.")
+    if fromKey then
+        Print(self.db.hud and "HUD on." or "HUD off.")
+    else
+        Print(self.db.hud and "HUD on. Set its size, zoom and opacity on the HUD tab (/gpf)."
+            or "HUD off.")
+    end
     self:Changed()
+end
+
+-- The key binding (Bindings.xml): Key Bindings > AddOns > GatherPath Forever
+BINDING_HEADER_GATHERPATHFOREVER = "GatherPath Forever"
+BINDING_NAME_GATHERPATHFOREVER_HUD = "Show or hide the HUD"
+function GatherPathForever_ToggleHud()
+    if GP.db then GP:ToggleHud(true) end
 end
 
 ---------------------------------------------------------------------------
@@ -2133,7 +2278,8 @@ local function Help()
     print("  |cffffd100/gpf show|r, |cffffd100/gpf hide|r  show or hide all the lines")
     print("  |cffffd100/gpf skipped|r  the nodes on your skip list")
     print("  |cffffd100/gpf tomtom|r  turn the TomTom waypoint on or off")
-    print("  |cffffd100/gpf hud|r  turn the HUD in the middle of the screen on or off")
+    print("  |cffffd100/gpf combine|r  combine GatherMate2 nodes saved more than once in the same place")
+    print("  |cffffd100/gpf hud|r  turn the HUD in the middle of the screen on or off (or set a key for it)")
 end
 
 SLASH_GATHERPATHFOREVER1 = "/gpf"
@@ -2155,6 +2301,8 @@ SlashCmdList.GATHERPATHFOREVER = function(msg)
         GP:ToggleTomTom()
     elseif cmd == "hud" then
         GP:ToggleHud()
+    elseif cmd == "combine" or cmd == "cleanup" then
+        GP:CombineDuplicates()
     elseif cmd == "show" or cmd == "hide" then
         local on = cmd == "show"
         if (GP.db.worldMap or GP.db.minimap) ~= on then GP:ToggleLines() end
@@ -2171,7 +2319,7 @@ events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 pcall(events.RegisterEvent, events, "ZONE_CHANGED_NEW_AREA")
-pcall(events.RegisterEvent, events, "PLAYER_REGEN_DISABLED")   -- the HUD hides in combat
+pcall(events.RegisterEvent, events, "PLAYER_REGEN_DISABLED")   -- the HUD can hide in combat
 pcall(events.RegisterEvent, events, "PLAYER_REGEN_ENABLED")
 events:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" then

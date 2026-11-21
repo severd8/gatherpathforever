@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.16.0
+
+- The HUD now **stays up in combat**. If you'd rather it hid while you fight, switch off **Show in combat** on the **HUD** tab. Thanks to RawG for the idea.
+- **Key binding for the HUD**: set a key in **Key Bindings**, under **AddOns**, **GatherPath Forever**, **Show or hide the HUD**. Thanks to RawG.
+- **Picked nodes** on the HUD: a node you've just gathered turns into an **empty ring**, so the solid dots are the ones worth riding to. It turns back into a dot after **10 minutes**, about when it could have grown back. Thanks to RawG for the idea.
+  - The game doesn't let addons see which herbs and veins are really up right now (the yellow tracking dots on the minimap are hidden from addons), so this goes by what **you** picked. A node someone else took still shows as a dot.
+  - On the **HUD** tab: **Mark picked nodes** (on), **Hide picked nodes** (leave them off instead of a ring) and **Picked for** (1 to 30 minutes).
+- **Combine duplicate nodes**: GatherMate2 sometimes saves the same herb or vein more than once in one place, so its icons stack up on the map (hover one and you see "Silverleaf" three times). The new **Combine duplicate nodes** button at the bottom of the **Display** tab (or **/gpf combine**) runs GatherMate2's own cleanup, which keeps one of each. Your routes keep their stops; click **Rebuild** on a route to take out any it had twice.
+- The HUD shows one dot for a node saved more than once, even before you combine them.
+
 ## 1.15.0
 
 - New **timed runs**, for when you don't have time for a whole zone. On the **New route** tab, set **Lap time** to how long one lap should take (5 to 60 minutes). GatherPath finds the busiest part of the zone and makes a loop through as many of your nodes as fit in that time, instead of one big loop that takes 50 minutes. Thanks to RawG for the idea.

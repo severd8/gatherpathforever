@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="GATHERPATHFOREVER_HUD" header="GATHERPATHFOREVER" category="ADDONS">
+        GatherPathForever_ToggleHud()
+    </Binding>
+</Bindings>
